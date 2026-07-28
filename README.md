@@ -4,18 +4,24 @@ OpenSpace is an interactive visual field guide to satellites orbiting Earth. It
 combines orbital tracking, mission information, operator context, and educational
 storytelling in a minimal space interface.
 
-The current MVP validates the complete experience with one satellite:
-Starcloud-1 (NORAD 66303).
+The catalog joins operational SatNOGS records to CelesTrak active orbital data.
+Only unique NORAD matches are published; ambiguous records and records without a
+current orbit are excluded.
 
 ## What works today
 
 - A minimal interactive Earth and satellite scene.
+- A navigable catalog of uniquely matched operational satellites.
 - Starcloud-1 mission, operator, manufacturer, launch year, status, and source
-  links.
-- Latitude and longitude propagated locally every second from the latest TLE.
+  links when its optional editorial enrichment is present.
+- Latitude and longitude propagated locally every second from the latest OMM
+  elements.
 - Smooth satellite marker movement without calling an external API every
   second.
-- A three-hour scheduled ingestion task for fresh CelesTrak and SatNOGS data.
+- A three-hour scheduled bulk ingestion task for fresh CelesTrak and SatNOGS
+  data.
+- A daily GCAT metadata task that prepares a normalized snapshot for the
+  three-hour ingestion.
 - One-time Gemini summaries for the mission function and operator description.
 - Latest-source snapshots stored in Supabase Storage and replaced on every
   successful ingestion.
@@ -25,28 +31,73 @@ Starcloud-1 (NORAD 66303).
 - **Next.js and TypeScript** provide the web application and server-side data
   loading.
 - **React Three Fiber** renders the interactive orbital scene.
-- **satellite.js** propagates the current position from the stored TLE in the
-  browser.
-- **Supabase Postgres** stores normalized satellite records and the latest TLE.
+- **satellite.js** propagates the selected satellite from stored CelesTrak OMM
+  elements in the browser.
+- **Supabase Postgres** stores normalized satellite records and orbital
+  elements.
 - **Supabase Storage** stores the latest raw source responses for traceability.
 - **Trigger.dev** schedules and observes ingestion runs.
 - **Gemini 3.5 Flash-Lite** creates concise educational summaries from supplied
   source text.
 
 The app includes a local Starcloud-1 fallback, so the visual experience remains
-available before Supabase is configured.
+available before Supabase is configured. GCAT completes the structured card
+metadata that is absent from the SatNOGS and CelesTrak orbital feeds. Generated
+operator descriptions state only GCAT's recorded owner, organization class, and
+location; richer hand-curated text is preserved when available.
+
+## Validate catalog coverage locally
+
+Before expanding the ingestion task, measure how many operational SatNOGS
+records can be joined safely to the CelesTrak active catalog:
+
+```bash
+npm run validate:satellites
+```
+
+The validator uses `norad_follow_id` when SatNOGS has replaced a temporary
+catalog ID, otherwise it uses `norad_cat_id`. It excludes NORAD IDs shared by
+multiple SatNOGS records and objects that GCAT does not classify as payloads,
+verifies that the CelesTrak OMM data can be propagated with `satellite.js`, and
+reports coverage for every field in the current card.
+
+To repeat a validation from previously downloaded responses without making
+network requests:
+
+```bash
+npm run validate:satellites -- \
+  --satnogs-file /path/to/satnogs.json \
+  --celestrak-file /path/to/celestrak.json \
+  --gcat-objects-file /path/to/satcat.tsv \
+  --gcat-extended-objects-file /path/to/satcat100k.tsv \
+  --gcat-payloads-file /path/to/psatcat.tsv \
+  --gcat-extended-payloads-file /path/to/psatcat100k.tsv \
+  --gcat-organizations-file /path/to/orgs.tsv
+```
 
 ## Data flow
 
-1. Trigger.dev runs `sync-starcloud-1` every three hours.
-2. The task downloads CelesTrak JSON, the CelesTrak TLE, and the SatNOGS record.
-3. Source identifiers are validated before any database update.
-4. The latest normalized record is upserted into Supabase Postgres.
-5. The latest raw responses replace the previous files in Supabase Storage.
-6. The web app reads the TLE once and calculates the current position locally
-   every second.
+1. Trigger.dev runs `sync-gcat-metadata` once a day.
+2. The task downloads the GCAT object, payload, and organization tables,
+   validates them, and stores both compressed source snapshots and a normalized
+   satellite-metadata snapshot.
+3. Trigger.dev runs `sync-satellite-catalog` every three hours.
+4. The catalog task downloads SatNOGS and the CelesTrak active OMM catalog, then
+   joins them to the normalized daily GCAT snapshot.
+5. `norad_follow_id` is preferred over temporary `norad_cat_id` values.
+6. Records without an active CelesTrak orbit and NORAD IDs shared by multiple
+   SatNOGS records are excluded.
+7. GCAT confirms that each record is a payload and supplies the launch date,
+   alternate identity, operator, manufacturer, country, and mission category.
+8. Existing editorial fields are preserved while source fields are upserted in
+   batches. Missing function and operator-description text is generated
+   deterministically from the GCAT category and organization metadata.
+9. Records absent from the newest successful catalog are marked inactive.
+10. The latest raw responses replace the previous files in Supabase Storage.
+11. The web app loads all operational rows and calculates only the selected
+   satellite position every second.
 
-`source_updated_at` stores the TLE epoch supplied by CelesTrak. `synced_at`
+`source_updated_at` stores the OMM epoch supplied by CelesTrak. `synced_at`
 stores the time when OpenSpace successfully completed its latest ingestion.
 
 ## Local setup
@@ -103,10 +154,25 @@ To publish the tasks and activate the production schedule:
 npm run trigger:deploy
 ```
 
-`sync-starcloud-1` uses the declarative cron schedule `0 */3 * * *`, which runs
-at the start of every third hour in UTC. Trigger.dev provides the run history,
-logs, retries, and failure alerts. A successful run also updates
+After applying all Supabase migrations and running
+`sync-gcat-metadata` followed by `sync-satellite-catalog`, verify the connected
+catalog:
+
+```bash
+npm run check:catalog
+```
+
+The check fails until the `orbital_elements` migration exists and every
+operational row has OMM data from the same catalog sync.
+
+`sync-satellite-catalog` uses the declarative cron schedule `0 */3 * * *`, which
+runs at the start of every third hour in UTC. Trigger.dev provides the run
+history, logs, retries, and failure alerts. A successful run also updates
 `satellites.synced_at` in Supabase.
+
+`sync-gcat-metadata` uses `0 2 * * *`, so GCAT is downloaded and normalized once
+per day at 02:00 UTC. The following 03:00 UTC catalog run consumes that prepared
+snapshot.
 
 The `generate-starcloud-1-summaries` task is intentionally manual. It updates
 `satellites.function` and `satellites.operator_description`, then stores its
@@ -120,6 +186,9 @@ is improved.
   elements.
 - [SatNOGS DB](https://db.satnogs.org/): mission identity, aliases, launch date,
   status, and community radio information.
+- [GCAT](https://planet4589.org/space/gcat/): payload classification, launch
+  metadata, alternate identity, owner/operator, manufacturer, country, and
+  organization metadata.
 - [Starcloud](https://www.starcloud.com/): first-party operator and mission
   context.
 
@@ -135,18 +204,10 @@ is improved.
 ## Next steps
 
 1. Show a clear public distinction between the position calculated every second
-   and the CelesTrak TLE epoch stored in `source_updated_at`.
+   and the CelesTrak OMM epoch stored in `source_updated_at`.
 2. Add a human-readable location such as “Above the central Pacific Ocean”
    without replacing the precise coordinates.
-3. Generalize the ingestion task from Starcloud-1 to a curated catalog of three
-   to five satellites.
-4. Load multiple satellite rows in the web app, render multiple markers, and
-   enable previous/next navigation.
-5. Make Gemini enrichment accept a satellite and operator URL while keeping it
-   manual or change-driven.
-6. Move to CelesTrak bulk feeds and controlled rendering only when the catalog
-   grows beyond the curated MVP.
-
-The immediate product milestone is a small, trustworthy satellite catalog. A
-full visualization of every active orbital object will require a separate
-bulk-ingestion and rendering strategy.
+3. Add optional source-reviewed mission-specific summaries on top of GCAT's
+   category-level function text.
+4. Add filters for country, launch year, and orbital inclination.
+5. Review excluded ambiguous NORAD groups when SatNOGS identity data changes.
