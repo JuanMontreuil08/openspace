@@ -16,6 +16,7 @@ export const starcloudFallback: SatelliteRecord = {
   dataCenterRelation: "Orbital compute demonstrator",
   inclinationDeg: 45.3997,
   periodMinutes: 94.63,
+  orbitalElements: null,
   tleLine1:
     "1 66303U 25248L   26207.16029198  .00005005  00000+0  22976-3 0  9990",
   tleLine2:

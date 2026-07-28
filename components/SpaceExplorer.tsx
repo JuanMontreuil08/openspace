@@ -6,6 +6,7 @@ import Link from "next/link";
 import {
   eciToGeodetic,
   gstime,
+  json2satrec,
   propagate,
   twoline2satrec,
 } from "satellite.js";
@@ -46,7 +47,14 @@ function getOrbitalPoint(
   date = new Date(),
 ): OrbitalPoint {
   try {
-    const satrec = twoline2satrec(satellite.tleLine1, satellite.tleLine2);
+    const satrec = satellite.orbitalElements
+      ? json2satrec(satellite.orbitalElements)
+      : satellite.tleLine1 && satellite.tleLine2
+        ? twoline2satrec(satellite.tleLine1, satellite.tleLine2)
+        : null;
+    if (!satrec) {
+      throw new Error("Orbital elements unavailable");
+    }
     const result = propagate(satrec, date);
 
     if (!result?.position || typeof result.position === "boolean") {
@@ -260,16 +268,18 @@ function Coordinate({ value, axis }: { value: number; axis: "lat" | "lon" }) {
 }
 
 export function SpaceExplorer({
-  satellite,
+  satellites,
   dataMode,
 }: {
-  satellite: SatelliteRecord;
+  satellites: SatelliteRecord[];
   dataMode: "live" | "demo";
 }) {
+  const [selectedIndex, setSelectedIndex] = useState(0);
   const [selected, setSelected] = useState(true);
   const [orbitalPoint, setOrbitalPoint] = useState<OrbitalPoint>(
     INITIAL_ORBITAL_POINT,
   );
+  const satellite = satellites[selectedIndex] ?? satellites[0];
 
   useEffect(() => {
     const update = () => setOrbitalPoint(getOrbitalPoint(satellite));
@@ -282,9 +292,28 @@ export function SpaceExplorer({
   }, [satellite]);
 
   const launchYear = useMemo(
-    () => new Date(satellite.launchDate).getUTCFullYear(),
+    () =>
+      satellite.launchDate
+        ? new Date(satellite.launchDate).getUTCFullYear()
+        : null,
     [satellite.launchDate],
   );
+  const catalogPosition = `${String(selectedIndex + 1).padStart(
+    String(satellites.length).length,
+    "0",
+  )} / ${satellites.length}`;
+  const selectSatellite = (index: number) => {
+    setSelectedIndex(index);
+    setSelected(true);
+  };
+  const selectPrevious = () =>
+    selectSatellite(
+      (selectedIndex - 1 + satellites.length) % satellites.length,
+    );
+  const selectNext = () =>
+    selectSatellite((selectedIndex + 1) % satellites.length);
+  const hasEditorialDetails =
+    satellite.function || satellite.operatorDescription;
 
   return (
     <main className="explorer-shell">
@@ -314,7 +343,7 @@ export function SpaceExplorer({
       </header>
 
       <section className="scene-intro" aria-label="Current satellite">
-        <p>ORBITAL OBJECT 01 / 01</p>
+        <p>ORBITAL OBJECT {catalogPosition}</p>
         <h1>{satellite.name}</h1>
         <span>Click the light to explore</span>
       </section>
@@ -335,36 +364,69 @@ export function SpaceExplorer({
             {satellite.status}
           </div>
           <h2>{satellite.name}</h2>
-          <p className="alternate-name">{satellite.alternateName}</p>
+          {satellite.alternateName && (
+            <p className="alternate-name">{satellite.alternateName}</p>
+          )}
 
           <dl className="facts-grid">
-            <div>
-              <dt>Operator</dt>
-              <dd>{satellite.operator}</dd>
-            </div>
-            <div>
-              <dt>Manufacturer</dt>
-              <dd>{satellite.manufacturer}</dd>
-            </div>
-            <div>
-              <dt>Launch year</dt>
-              <dd>{launchYear}</dd>
-            </div>
+            {satellite.operator && (
+              <div>
+                <dt>Operator</dt>
+                <dd>{satellite.operator}</dd>
+              </div>
+            )}
+            {satellite.manufacturer && (
+              <div>
+                <dt>Manufacturer</dt>
+                <dd>{satellite.manufacturer}</dd>
+              </div>
+            )}
+            {launchYear && (
+              <div>
+                <dt>Launch year</dt>
+                <dd>{launchYear}</dd>
+              </div>
+            )}
+            {satellite.country && (
+              <div>
+                <dt>Country</dt>
+                <dd>{satellite.country}</dd>
+              </div>
+            )}
             <div>
               <dt>NORAD ID</dt>
               <dd>{satellite.noradId}</dd>
             </div>
+            <div>
+              <dt>Inclination</dt>
+              <dd>{satellite.inclinationDeg.toFixed(2)}°</dd>
+            </div>
+            <div>
+              <dt>Orbital period</dt>
+              <dd>{satellite.periodMinutes.toFixed(1)} min</dd>
+            </div>
           </dl>
 
-          <div className="function-block">
-            <span>Mission function</span>
-            <p>{satellite.function}</p>
-          </div>
+          {satellite.function && (
+            <div className="function-block">
+              <span>Mission function</span>
+              <p>{satellite.function}</p>
+            </div>
+          )}
 
-          <div className="operator-block">
-            <span>About the operator</span>
-            <p>{satellite.operatorDescription}</p>
-          </div>
+          {satellite.operatorDescription && (
+            <div className="operator-block">
+              <span>About the operator</span>
+              <p>{satellite.operatorDescription}</p>
+            </div>
+          )}
+
+          {!hasEditorialDetails && (
+            <p className="catalog-note">
+              Mission details are not available in the current public bulk
+              sources. Orbital data below is verified against CelesTrak.
+            </p>
+          )}
 
           <div className="orbit-strip">
             <div>
@@ -389,7 +451,7 @@ export function SpaceExplorer({
                   href={source.url}
                   target="_blank"
                   rel="noreferrer"
-                  key={source.label}
+                  key={`${source.label}-${source.url}`}
                 >
                   {source.label}
                 </a>
@@ -400,11 +462,25 @@ export function SpaceExplorer({
       )}
 
       <nav className="satellite-navigation" aria-label="Satellite navigation">
-        <button type="button" disabled aria-label="Previous satellite">
+        <button
+          type="button"
+          onClick={selectPrevious}
+          aria-label="Previous satellite"
+        >
           ←
         </button>
-        <span>STARCLOUD-1</span>
-        <button type="button" disabled aria-label="Next satellite">
+        <select
+          aria-label="Select a satellite"
+          value={selectedIndex}
+          onChange={(event) => selectSatellite(Number(event.target.value))}
+        >
+          {satellites.map((catalogSatellite, index) => (
+            <option value={index} key={catalogSatellite.noradId}>
+              {catalogSatellite.name} · {catalogSatellite.noradId}
+            </option>
+          ))}
+        </select>
+        <button type="button" onClick={selectNext} aria-label="Next satellite">
           →
         </button>
       </nav>

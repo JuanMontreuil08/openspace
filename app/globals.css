@@ -278,6 +278,14 @@ a {
   padding: 0 0 22px;
 }
 
+.catalog-note {
+  padding: 20px 0;
+  margin: 0;
+  color: #7f929f;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
 .operator-block span {
   display: block;
   margin-bottom: 6px;
@@ -353,18 +361,30 @@ a {
   width: 30px;
   height: 30px;
   padding: 0;
-  color: #52636d;
+  color: #8ba1ac;
+  cursor: pointer;
   background: transparent;
   border: 0;
 }
 
-.satellite-navigation span {
-  min-width: 104px;
+.satellite-navigation button:hover {
+  color: #dff8ff;
+}
+
+.satellite-navigation select {
+  width: min(290px, 52vw);
+  height: 30px;
+  padding: 0 28px 0 10px;
   color: #a8bbc4;
   font-family: "SFMono-Regular", Consolas, monospace;
   font-size: 9px;
   letter-spacing: 0.12em;
   text-align: center;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  background: #07111a;
+  border: 1px solid rgba(151, 209, 234, 0.12);
+  border-radius: 0;
 }
 
 .position-readout {

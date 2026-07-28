@@ -1,6 +1,10 @@
 import { createClient } from "@supabase/supabase-js";
 import { starcloudFallback } from "./starcloud";
-import type { SatelliteRecord, SourceLink } from "./types";
+import type {
+  OrbitalElements,
+  SatelliteRecord,
+  SourceLink,
+} from "./types";
 
 type SatelliteRow = {
   norad_id: number;
@@ -8,21 +12,24 @@ type SatelliteRow = {
   cospar_id: string;
   name: string;
   alternate_name: string;
-  operator: string;
-  operator_description: string;
-  manufacturer: string;
-  country: string;
-  launch_date: string;
+  operator: string | null;
+  operator_description: string | null;
+  manufacturer: string | null;
+  country: string | null;
+  launch_date: string | null;
   status: SatelliteRecord["status"];
-  function: string;
-  data_center_relation: string;
+  function: string | null;
+  data_center_relation: string | null;
   inclination_deg: number;
   period_minutes: number;
-  tle_line_1: string;
-  tle_line_2: string;
+  orbital_elements: OrbitalElements | null;
+  tle_line_1: string | null;
+  tle_line_2: string | null;
   source_urls: SourceLink[];
   source_updated_at: string;
 };
+
+const PAGE_SIZE = 1_000;
 
 function mapRow(row: SatelliteRow): SatelliteRecord {
   return {
@@ -41,6 +48,7 @@ function mapRow(row: SatelliteRow): SatelliteRecord {
     dataCenterRelation: row.data_center_relation,
     inclinationDeg: row.inclination_deg,
     periodMinutes: row.period_minutes,
+    orbitalElements: row.orbital_elements,
     tleLine1: row.tle_line_1,
     tleLine2: row.tle_line_2,
     sources: row.source_urls,
@@ -48,36 +56,51 @@ function mapRow(row: SatelliteRow): SatelliteRecord {
   };
 }
 
-export async function getStarcloud(): Promise<{
-  satellite: SatelliteRecord;
+export async function getSatellites(): Promise<{
+  satellites: SatelliteRecord[];
   dataMode: "live" | "demo";
 }> {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
   if (!url || !key) {
-    return { satellite: starcloudFallback, dataMode: "demo" };
+    return { satellites: [starcloudFallback], dataMode: "demo" };
   }
 
   try {
     const supabase = createClient(url, key, {
       auth: { persistSession: false },
     });
-    const { data, error } = await supabase
-      .from("satellites")
-      .select("*")
-      .eq("norad_id", 66303)
-      .single();
+    const rows: SatelliteRow[] = [];
 
-    if (error || !data) {
-      return { satellite: starcloudFallback, dataMode: "demo" };
+    for (let from = 0; ; from += PAGE_SIZE) {
+      const { data, error } = await supabase
+        .from("satellites")
+        .select("*")
+        .eq("status", "operational")
+        .order("name")
+        .range(from, from + PAGE_SIZE - 1);
+
+      if (error) {
+        throw error;
+      }
+
+      const page = (data ?? []) as SatelliteRow[];
+      rows.push(...page);
+      if (page.length < PAGE_SIZE) {
+        break;
+      }
+    }
+
+    if (rows.length === 0) {
+      return { satellites: [starcloudFallback], dataMode: "demo" };
     }
 
     return {
-      satellite: mapRow(data as SatelliteRow),
+      satellites: rows.map(mapRow),
       dataMode: "live",
     };
   } catch {
-    return { satellite: starcloudFallback, dataMode: "demo" };
+    return { satellites: [starcloudFallback], dataMode: "demo" };
   }
 }
