@@ -11,6 +11,8 @@
     "start": "next start",
     "test": "npm run lint && npm run build",
     "lint": "eslint .",
+    "check:catalog": "node scripts/check-catalog-readiness.mjs",
+    "validate:satellites": "node scripts/validate-satellite-coverage.mjs",
     "trigger:dev": "npx trigger.dev@latest dev",
     "trigger:deploy": "npx trigger.dev@latest deploy"
   },
@@ -19,7 +21,7 @@
     "@react-three/drei": "^10.7.7",
     "@react-three/fiber": "^9.6.1",
     "@supabase/supabase-js": "^2.110.8",
-    "@trigger.dev/sdk": "^4.5.7",
+    "@trigger.dev/sdk": "4.5.8",
     "next": "16.2.6",
     "react": "19.2.6",
     "react-dom": "19.2.6",
