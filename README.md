@@ -23,6 +23,9 @@ current orbit are excluded.
 - A daily GCAT metadata task that prepares a normalized snapshot for the
   three-hour ingestion.
 - One-time Gemini summaries for the mission function and operator description.
+- On-demand OpenAI web research for enriching the selected satellite's mission
+  and operator descriptions, with source links and persistent completion
+  tracking.
 - Latest-source snapshots stored in Supabase Storage and replaced on every
   successful ingestion.
 
@@ -39,6 +42,8 @@ current orbit are excluded.
 - **Trigger.dev** schedules and observes ingestion runs.
 - **Gemini 3.5 Flash-Lite** creates concise educational summaries from supplied
   source text.
+- **OpenAI Responses API** performs live web research for explicit, per-satellite
+  enrichment requests.
 
 The app includes a local Starcloud-1 fallback, so the visual experience remains
 available before Supabase is configured. GCAT completes the structured card
@@ -95,7 +100,10 @@ npm run validate:satellites -- \
 9. Records absent from the newest successful catalog are marked inactive.
 10. The latest raw responses replace the previous files in Supabase Storage.
 11. The web app loads all operational rows and calculates only the selected
-   satellite position every second.
+    satellite position every second.
+12. When a visitor requests enrichment, the Next.js server queues one
+    NORAD-scoped Trigger.dev run. Supported descriptions and their source URLs
+    are written back to Supabase and immediately refreshed in the open card.
 
 `source_updated_at` stores the OMM epoch supplied by CelesTrak. `synced_at`
 stores the time when OpenSpace successfully completed its latest ingestion.
@@ -109,6 +117,7 @@ Requirements:
 - A Supabase project
 - A Trigger.dev project
 - A Gemini API key only when regenerating summaries
+- An OpenAI API key only when using on-demand web enrichment
 
 Setup:
 
@@ -141,6 +150,11 @@ Configure these variables in the relevant Trigger.dev environment:
 - `SUPABASE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `GEMINI_API_KEY` only for the manual Gemini task
+- `OPENAI_API_KEY` for on-demand satellite enrichment
+
+The Next.js server also needs `SUPABASE_URL`,
+`SUPABASE_SERVICE_ROLE_KEY`, and `TRIGGER_SECRET_KEY`. These values stay on the
+server and must never use the `NEXT_PUBLIC_` prefix.
 
 For local task development:
 
@@ -153,6 +167,30 @@ To publish the tasks and activate the production schedule:
 ```bash
 npm run trigger:deploy
 ```
+
+### Enrich satellite descriptions
+
+Each operational satellite card exposes one `Enhance with AI` action. The
+server queues `enrich-satellite-catalog` with that satellite's NORAD ID, polls
+the run, and refreshes the mission, operator description, and cited sources in
+the open card. Apply `20260728010000_add_enrichment_tracking.sql` before using
+the action.
+
+```json
+{ "noradId": 25544 }
+```
+
+The task requires `noradId`, so it cannot accidentally process the full
+catalog. The public route never enables `overwrite`, refuses already enriched
+rows, and deduplicates repeated requests for the same satellite. The task
+uses `gpt-5.6-luna` through the OpenAI Responses API to search the web and
+produce validated structured output in one request. It reuses an existing
+researched operator by exact name, preserves current copy when evidence is
+insufficient, strips citations and raw URLs from display copy, saves each
+supported field immediately, and logs the result. Research URLs remain in the
+card's source list.
+`overwrite: true` remains available only when an administrator manually
+triggers a deliberate regeneration.
 
 After applying all Supabase migrations and running
 `sync-gcat-metadata` followed by `sync-satellite-catalog`, verify the connected
@@ -196,10 +234,15 @@ is improved.
 
 - `.env.local` and all other environment files are ignored by Git.
 - `.env.example` contains variable names and placeholders only.
-- The Supabase service-role key and Gemini API key are used only by Trigger.dev
-  tasks and must never be exposed to the browser.
+- The Supabase service-role key, Trigger.dev secret, Gemini API key, and OpenAI
+  API key remain server-side and must never be exposed to the browser.
 - Only `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` are
   intended for the public web application.
+- The enrichment endpoint is intentionally available to public visitors. It
+  scopes each request to one operational NORAD ID, prevents overwrite, rejects
+  completed rows, and deduplicates short-window repeats. Add authentication or
+  a server-side usage quota before promoting the app to untrusted high-traffic
+  audiences.
 
 ## Next steps
 
@@ -207,7 +250,7 @@ is improved.
    and the CelesTrak OMM epoch stored in `source_updated_at`.
 2. Add a human-readable location such as “Above the central Pacific Ocean”
    without replacing the precise coordinates.
-3. Add optional source-reviewed mission-specific summaries on top of GCAT's
-   category-level function text.
+3. Add a server-side enrichment quota or authenticated administrator mode for
+   predictable OpenAI spending on a public deployment.
 4. Add filters for country, launch year, and orbital inclination.
 5. Review excluded ambiguous NORAD groups when SatNOGS identity data changes.
