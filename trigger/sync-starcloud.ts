@@ -620,7 +620,7 @@ export const syncGcatMetadata = schedules.task({
 
 export const syncSatelliteCatalog = schedules.task({
   id: "sync-satellite-catalog",
-  cron: "0 */3 * * *",
+  cron: "0 3,11,19 * * *",
   retry: { maxAttempts: 3 },
   run: async () => {
     const supabase = getSupabaseAdmin();
