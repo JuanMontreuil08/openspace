@@ -40,5 +40,7 @@ export type SatelliteRecord = {
   tleLine1: string | null;
   tleLine2: string | null;
   sources: SourceLink[];
+  missionEnrichedAt: string | null;
+  operatorEnrichedAt: string | null;
   updatedAt: string;
 };

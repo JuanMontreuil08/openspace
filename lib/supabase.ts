@@ -26,6 +26,8 @@ type SatelliteRow = {
   tle_line_1: string | null;
   tle_line_2: string | null;
   source_urls: SourceLink[];
+  mission_enriched_at: string | null;
+  operator_enriched_at: string | null;
   source_updated_at: string;
 };
 
@@ -52,6 +54,8 @@ function mapRow(row: SatelliteRow): SatelliteRecord {
     tleLine1: row.tle_line_1,
     tleLine2: row.tle_line_2,
     sources: row.source_urls,
+    missionEnrichedAt: row.mission_enriched_at,
+    operatorEnrichedAt: row.operator_enriched_at,
     updatedAt: row.source_updated_at,
   };
 }

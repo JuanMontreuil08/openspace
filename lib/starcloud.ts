@@ -35,5 +35,7 @@ export const starcloudFallback: SatelliteRecord = {
       url: "https://www.starcloud.com/starcloud-1",
     },
   ],
+  missionEnrichedAt: null,
+  operatorEnrichedAt: null,
   updatedAt: "2026-07-26T03:50:49.227072Z",
 };
