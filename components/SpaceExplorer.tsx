@@ -21,6 +21,21 @@ type OrbitalPoint = {
   altitude: number;
 };
 
+type EnrichmentState = {
+  status: "idle" | "loading" | "completed" | "needs_review" | "error";
+  message?: string;
+};
+
+type EnrichedSatellite = Pick<
+  SatelliteRecord,
+  | "noradId"
+  | "function"
+  | "operatorDescription"
+  | "sources"
+  | "missionEnrichedAt"
+  | "operatorEnrichedAt"
+>;
+
 const EARTH_RADIUS_KM = 6378.137;
 const POSITION_UPDATE_INTERVAL_MS = 1_000;
 const INITIAL_ORBITAL_POINT: OrbitalPoint = {
@@ -267,6 +282,22 @@ function Coordinate({ value, axis }: { value: number; axis: "lat" | "lon" }) {
   );
 }
 
+function isAiResearchSource(label: string) {
+  const normalized = label.toLowerCase();
+  return (
+    normalized.includes("mission research") ||
+    normalized.includes("operator research")
+  );
+}
+
+function sourceHostname(url: string) {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return "Research source";
+  }
+}
+
 export function SpaceExplorer({
   satellites,
   dataMode,
@@ -274,12 +305,20 @@ export function SpaceExplorer({
   satellites: SatelliteRecord[];
   dataMode: "live" | "demo";
 }) {
+  const [catalog, setCatalog] = useState(satellites);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [selected, setSelected] = useState(true);
+  const [enrichmentStates, setEnrichmentStates] = useState<
+    Record<number, EnrichmentState>
+  >({});
   const [orbitalPoint, setOrbitalPoint] = useState<OrbitalPoint>(
     INITIAL_ORBITAL_POINT,
   );
-  const satellite = satellites[selectedIndex] ?? satellites[0];
+  const satellite = catalog[selectedIndex] ?? catalog[0];
+
+  useEffect(() => {
+    setCatalog(satellites);
+  }, [satellites]);
 
   useEffect(() => {
     const update = () => setOrbitalPoint(getOrbitalPoint(satellite));
@@ -299,21 +338,151 @@ export function SpaceExplorer({
     [satellite.launchDate],
   );
   const catalogPosition = `${String(selectedIndex + 1).padStart(
-    String(satellites.length).length,
+    String(catalog.length).length,
     "0",
-  )} / ${satellites.length}`;
+  )} / ${catalog.length}`;
   const selectSatellite = (index: number) => {
     setSelectedIndex(index);
     setSelected(true);
   };
   const selectPrevious = () =>
     selectSatellite(
-      (selectedIndex - 1 + satellites.length) % satellites.length,
+      (selectedIndex - 1 + catalog.length) % catalog.length,
     );
   const selectNext = () =>
-    selectSatellite((selectedIndex + 1) % satellites.length);
+    selectSatellite((selectedIndex + 1) % catalog.length);
   const hasEditorialDetails =
     satellite.function || satellite.operatorDescription;
+  const displaySources = useMemo(() => {
+    const catalogHosts = new Set(
+      satellite.sources
+        .filter((source) => !isAiResearchSource(source.label))
+        .map((source) => sourceHostname(source.url)),
+    );
+    const shownResearchHosts = new Set<string>();
+
+    return satellite.sources.flatMap((source) => {
+      if (!isAiResearchSource(source.label)) return [source];
+
+      const hostname = sourceHostname(source.url);
+      if (
+        catalogHosts.has(hostname) ||
+        shownResearchHosts.has(hostname)
+      ) {
+        return [];
+      }
+
+      shownResearchHosts.add(hostname);
+      return [{ ...source, label: hostname }];
+    });
+  }, [satellite.sources]);
+  const enrichmentState = enrichmentStates[satellite.noradId] ?? {
+    status: "idle",
+  };
+  const isFullyEnriched = Boolean(
+    satellite.missionEnrichedAt && satellite.operatorEnrichedAt,
+  );
+
+  const applyEnrichment = (enriched: EnrichedSatellite) => {
+    setCatalog((current) =>
+      current.map((item) =>
+        item.noradId === enriched.noradId
+          ? { ...item, ...enriched }
+          : item,
+      ),
+    );
+  };
+
+  const enhanceSatellite = async () => {
+    const noradId = satellite.noradId;
+    setEnrichmentStates((current) => ({
+      ...current,
+      [noradId]: { status: "loading" },
+    }));
+
+    try {
+      const response = await fetch(`/api/satellites/${noradId}/enrich`, {
+        method: "POST",
+      });
+      const queued = (await response.json()) as {
+        status?: string;
+        runId?: string;
+        satellite?: EnrichedSatellite;
+        error?: string;
+      };
+      if (!response.ok) {
+        throw new Error(queued.error ?? "Unable to start AI enrichment.");
+      }
+
+      if (queued.status === "already_enriched" && queued.satellite) {
+        applyEnrichment(queued.satellite);
+        setEnrichmentStates((current) => ({
+          ...current,
+          [noradId]: { status: "completed" },
+        }));
+        return;
+      }
+
+      if (!queued.runId) {
+        throw new Error("The enrichment run was not created.");
+      }
+
+      for (let attempt = 0; attempt < 120; attempt += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, 3_000));
+        const statusResponse = await fetch(
+          `/api/satellites/${noradId}/enrich?runId=${encodeURIComponent(queued.runId)}`,
+          { cache: "no-store" },
+        );
+        const result = (await statusResponse.json()) as {
+          status?: string;
+          satellite?: EnrichedSatellite;
+          error?: string;
+        };
+
+        if (!statusResponse.ok) {
+          throw new Error(result.error ?? "AI enrichment did not complete.");
+        }
+        if (result.status === "running") continue;
+
+        if (
+          (result.status === "completed" ||
+            result.status === "needs_review") &&
+          result.satellite
+        ) {
+          const completedStatus = result.status;
+          applyEnrichment(result.satellite);
+          setEnrichmentStates((current) => ({
+            ...current,
+            [noradId]: {
+              status: completedStatus,
+              message:
+                completedStatus === "needs_review"
+                  ? "AI could not verify every field with enough evidence."
+                  : undefined,
+            },
+          }));
+          return;
+        }
+
+        throw new Error(result.error ?? "AI enrichment did not complete.");
+      }
+
+      throw new Error(
+        "AI enrichment is taking longer than expected. Try again later.",
+      );
+    } catch (error) {
+      setEnrichmentStates((current) => ({
+        ...current,
+        [noradId]: {
+          status: "error",
+          message:
+            error instanceof Error
+              ? error.message
+              : "AI enrichment is temporarily unavailable.",
+        },
+      }));
+    }
+  };
 
   return (
     <main className="explorer-shell">
@@ -428,6 +597,46 @@ export function SpaceExplorer({
             </p>
           )}
 
+          {dataMode === "live" && (
+            <div className="enrichment-action" aria-live="polite">
+              {isFullyEnriched ? (
+                <span className="enrichment-complete">✓ Enhanced with AI</span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={enhanceSatellite}
+                  disabled={enrichmentState.status === "loading"}
+                  className={
+                    enrichmentState.status === "loading"
+                      ? "is-loading"
+                      : undefined
+                  }
+                >
+                  {enrichmentState.status === "loading" ? (
+                    <span className="enrichment-loading-label">
+                      <span className="enrichment-orbit" aria-hidden>
+                        <i />
+                      </span>
+                      <span>Enhancing</span>
+                      <span className="enrichment-loading-dots" aria-hidden>
+                        <i />
+                        <i />
+                        <i />
+                      </span>
+                    </span>
+                  ) : (
+                    "Enhance with AI"
+                  )}
+                </button>
+              )}
+              {enrichmentState.message && (
+                <p className="enrichment-message">
+                  {enrichmentState.message}
+                </p>
+              )}
+            </div>
+          )}
+
           <div className="orbit-strip">
             <div>
               <span>Latitude</span>
@@ -446,12 +655,13 @@ export function SpaceExplorer({
           <footer className="card-footer">
             <span>Sources</span>
             <div>
-              {satellite.sources.map((source) => (
+              {displaySources.map((source) => (
                 <a
                   href={source.url}
                   target="_blank"
                   rel="noreferrer"
                   key={`${source.label}-${source.url}`}
+                  title={`Source: ${source.url}`}
                 >
                   {source.label}
                 </a>
@@ -474,7 +684,7 @@ export function SpaceExplorer({
           value={selectedIndex}
           onChange={(event) => selectSatellite(Number(event.target.value))}
         >
-          {satellites.map((catalogSatellite, index) => (
+          {catalog.map((catalogSatellite, index) => (
             <option value={index} key={catalogSatellite.noradId}>
               {catalogSatellite.name} · {catalogSatellite.noradId}
             </option>
