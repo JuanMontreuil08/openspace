@@ -4,6 +4,11 @@ import { logger, schedules, task } from "@trigger.dev/sdk";
 import { gunzipSync, gzipSync } from "node:zlib";
 import { z } from "zod";
 
+import {
+  reconcileSatelliteIdentities,
+  type SatelliteIdentity,
+} from "@/lib/satellite-identity";
+
 const NORAD_ID = 66303;
 const CELESTRAK_ACTIVE_JSON_URL =
   "https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=JSON";
@@ -60,7 +65,7 @@ const satnogsSatelliteSchema = z.object({
 const celestrakCatalogSchema = z.array(orbitalElementsSchema);
 const satnogsCatalogSchema = z.array(satnogsSatelliteSchema);
 
-type ExistingEditorialFields = {
+type ExistingSatelliteFields = SatelliteIdentity & {
   operator: string | null;
   operator_description: string | null;
   manufacturer: string | null;
@@ -381,22 +386,22 @@ function sourceUpdatedAt(epoch: string) {
   return new Date(epoch.endsWith("Z") ? epoch : `${epoch}Z`).toISOString();
 }
 
-async function loadExistingEditorialFields(
+async function loadExistingSatelliteFields(
   supabase: ReturnType<typeof getSupabaseAdmin>,
 ) {
-  const records = new Map<number, ExistingEditorialFields>();
+  const records: ExistingSatelliteFields[] = [];
 
   for (let from = 0; ; from += SELECT_PAGE_SIZE) {
     const { data, error } = await supabase
       .from("satellites")
       .select(
-        "norad_id, operator, operator_description, manufacturer, function, data_center_relation",
+        "norad_id, satnogs_id, operator, operator_description, manufacturer, function, data_center_relation",
       )
       .range(from, from + SELECT_PAGE_SIZE - 1);
 
     if (error) throw error;
     for (const record of data ?? []) {
-      records.set(record.norad_id, record);
+      records.push(record);
     }
     if ((data?.length ?? 0) < SELECT_PAGE_SIZE) {
       break;
@@ -637,7 +642,7 @@ export const syncSatelliteCatalog = schedules.task({
       celestrakJsonText,
       satnogsJsonText,
       gcatMetadataText,
-      existingEditorialFields,
+      existingSatelliteFields,
     ] = await Promise.all([
       celestrakPromise,
       fetchText(SATNOGS_CATALOG_URL),
@@ -645,7 +650,7 @@ export const syncSatelliteCatalog = schedules.task({
         supabase,
         "catalog/gcat-satellite-metadata.json.gz",
       ),
-      loadExistingEditorialFields(supabase),
+      loadExistingSatelliteFields(supabase),
     ]);
     const celestrakCatalog = celestrakCatalogSchema.parse(
       JSON.parse(celestrakJsonText),
@@ -658,6 +663,18 @@ export const syncSatelliteCatalog = schedules.task({
     );
     const gcatMetadataById = new Map(
       gcatMetadata.map((metadata) => [metadata.jcat, metadata]),
+    );
+    const existingByNoradId = new Map(
+      existingSatelliteFields.map((satellite) => [
+        satellite.norad_id,
+        satellite,
+      ]),
+    );
+    const existingBySatnogsId = new Map(
+      existingSatelliteFields.map((satellite) => [
+        satellite.satnogs_id,
+        satellite,
+      ]),
     );
     const celestrakByNorad = new Map(
       celestrakCatalog.map((satellite) => [
@@ -699,7 +716,9 @@ export const syncSatelliteCatalog = schedules.task({
       if (!gcat) {
         throw new Error(`GCAT record ${gcatId} disappeared during join.`);
       }
-      const existing = existingEditorialFields.get(noradId);
+      const existing =
+        existingBySatnogsId.get(satellite.sat_id) ??
+        existingByNoradId.get(noradId);
       const sources = [
         { label: "CelesTrak", url: celestrakObjectUrl(noradId) },
         {
@@ -748,6 +767,24 @@ export const syncSatelliteCatalog = schedules.task({
         synced_at: syncedAt,
       };
     });
+    const identityReconciliation = reconcileSatelliteIdentities(
+      rows,
+      existingSatelliteFields,
+    );
+    const rowsToUpsert = identityReconciliation.acceptedRows;
+
+    if (identityReconciliation.reassignments.length > 0) {
+      logger.info("Satellite NORAD identities reassigned", {
+        reassignedNoradRecords: identityReconciliation.reassignments.length,
+        reassignments: identityReconciliation.reassignments,
+      });
+    }
+    if (identityReconciliation.conflicts.length > 0) {
+      logger.warn("Satellite identity conflicts excluded from synchronization", {
+        identityConflicts: identityReconciliation.conflicts.length,
+        conflicts: identityReconciliation.conflicts.slice(0, 20),
+      });
+    }
 
     const snapshotPaths = await Promise.all([
       saveSnapshot(
@@ -758,11 +795,15 @@ export const syncSatelliteCatalog = schedules.task({
       saveSnapshot(supabase, "catalog/satnogs.json", satnogsJsonText),
     ]);
 
-    for (let index = 0; index < rows.length; index += UPSERT_BATCH_SIZE) {
+    for (
+      let index = 0;
+      index < rowsToUpsert.length;
+      index += UPSERT_BATCH_SIZE
+    ) {
       const { error } = await supabase
         .from("satellites")
-        .upsert(rows.slice(index, index + UPSERT_BATCH_SIZE), {
-          onConflict: "norad_id",
+        .upsert(rowsToUpsert.slice(index, index + UPSERT_BATCH_SIZE), {
+          onConflict: "satnogs_id",
         });
       if (error) throw error;
     }
@@ -783,7 +824,9 @@ export const syncSatelliteCatalog = schedules.task({
       matchedRecords: matchedSatellites.length,
       ambiguousRecords,
       excludedByGcat,
-      synchronizedRecords: rows.length,
+      identityConflicts: identityReconciliation.conflicts.length,
+      reassignedNoradRecords: identityReconciliation.reassignments.length,
+      synchronizedRecords: rowsToUpsert.length,
       snapshotPaths,
     });
 
@@ -794,7 +837,9 @@ export const syncSatelliteCatalog = schedules.task({
       matchedRecords: matchedSatellites.length,
       ambiguousRecords,
       excludedByGcat,
-      synchronizedRecords: rows.length,
+      identityConflicts: identityReconciliation.conflicts.length,
+      reassignedNoradRecords: identityReconciliation.reassignments.length,
+      synchronizedRecords: rowsToUpsert.length,
       snapshotPaths,
     };
   },
