@@ -690,121 +690,25 @@ a {
   }
 }
 
-/* Figma handoff: editorial left rail + orbital field */
+/* Minimal 2D orbital atlas */
 .explorer-shell {
   background:
-    radial-gradient(circle at 78% 64%, rgba(37, 122, 161, 0.2), transparent 24%),
-    radial-gradient(circle at 72% 96%, rgba(17, 58, 88, 0.26), transparent 36%),
-    #02050a;
-}
-
-.space-canvas {
-  z-index: 1;
-  pointer-events: auto;
-}
-
-.earth-visual {
-  position: absolute;
-  top: 90px;
-  right: 0;
-  bottom: 0;
-  z-index: 2;
-  width: min(76vw, 980px);
-  overflow: hidden;
-  pointer-events: none;
-  background:
-    linear-gradient(90deg, rgba(2, 5, 10, 0.04), transparent 25%),
-    linear-gradient(0deg, rgba(2, 5, 10, 0.1), transparent 38%),
-    url("/earth-reference.jpg") center center / cover no-repeat;
-  filter: saturate(0.96) contrast(1.04);
-  -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 13%, #000 100%);
-  mask-image: linear-gradient(90deg, transparent 0%, #000 13%, #000 100%);
-}
-
-.earth-visual::after {
-  position: absolute;
-  inset: 0;
-  background: radial-gradient(circle at 55% 55%, transparent 32%, rgba(2, 5, 10, 0.2) 78%);
-  content: "";
-}
-
-.earth-marker-layer {
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-}
-
-.earth-marker {
-  position: absolute;
-  display: grid;
-  width: 32px;
-  height: 32px;
-  padding: 0;
-  cursor: pointer;
-  background: rgba(220, 247, 255, 0.18);
-  border: 1px solid rgba(235, 252, 255, 0.42);
-  border-radius: 50%;
-  place-items: center;
-  transform: translate(-50%, -50%);
-  transition: transform 180ms ease, background 180ms ease, box-shadow 180ms ease;
-  pointer-events: auto;
-}
-
-.earth-marker::before {
-  position: absolute;
-  inset: 5px;
-  border: 1px solid rgba(232, 251, 255, 0.26);
-  border-radius: 50%;
-  content: "";
-}
-
-.earth-marker span {
-  position: relative;
-  z-index: 1;
-  width: 10px;
-  height: 10px;
-  background: #f6fdff;
-  border-radius: 50%;
-  box-shadow: 0 0 12px rgba(236, 252, 255, 0.95);
-}
-
-.earth-marker:hover,
-.earth-marker:focus-visible {
-  background: rgba(220, 247, 255, 0.3);
-  outline: none;
-  transform: translate(-50%, -50%) scale(1.12);
-}
-
-.earth-marker.is-selected {
-  width: 58px;
-  height: 58px;
-  background: rgba(220, 247, 255, 0.12);
-  border-color: rgba(240, 254, 255, 0.78);
-  box-shadow: 0 0 0 1px rgba(220, 247, 255, 0.22), 0 0 28px rgba(86, 194, 231, 0.32);
-}
-
-.earth-marker.is-selected::before {
-  inset: 8px;
-  border-color: rgba(240, 254, 255, 0.5);
-}
-
-.earth-marker.is-selected span {
-  width: 12px;
-  height: 12px;
+    radial-gradient(circle at 77% 48%, rgba(34, 112, 139, 0.14), transparent 32%),
+    linear-gradient(112deg, #02060a 0 36%, #06131c 100%);
 }
 
 .explorer-shell::after {
   background:
-    linear-gradient(90deg, rgba(2, 5, 10, 0.08), transparent 30% 70%, rgba(2, 5, 10, 0.12)),
-    linear-gradient(0deg, rgba(2, 5, 10, 0.3), transparent 32%);
+    linear-gradient(90deg, rgba(2, 6, 10, 0.18), transparent 42%),
+    linear-gradient(0deg, rgba(2, 6, 10, 0.34), transparent 30%);
 }
 
 .site-header {
-  height: 90px;
-  padding: 0 48px;
-  background: rgba(6, 16, 29, 0.84);
-  border-bottom-color: rgba(151, 209, 234, 0.12);
-  backdrop-filter: blur(18px);
+  height: 76px;
+  padding: 0 40px;
+  background: rgba(3, 10, 16, 0.82);
+  border-bottom-color: rgba(160, 213, 231, 0.1);
+  backdrop-filter: blur(16px);
 }
 
 .brand {
@@ -812,97 +716,202 @@ a {
 }
 
 .brand-mark {
-  width: 10px;
-  height: 10px;
-  background: #e9f6fb;
-  box-shadow: 0 0 18px rgba(105, 220, 255, 0.9);
+  width: 8px;
+  height: 8px;
+  background: #eafaff;
+  box-shadow: 0 0 14px rgba(105, 220, 255, 0.7);
 }
 
 .scene-intro {
-  top: 124px;
-  left: 48px;
+  top: 108px;
+  left: 40px;
+  width: 340px;
 }
 
 .scene-intro h1 {
-  margin: 10px 0 6px;
-  font-size: clamp(24px, 2.8vw, 38px);
-  font-weight: 400;
+  margin: 10px 0 7px;
+  font-size: clamp(30px, 3.2vw, 48px);
+  font-weight: 300;
+}
+
+.minimal-earth {
+  position: absolute;
+  top: 94px;
+  right: -4vw;
+  z-index: 2;
+  width: min(68vw, 850px);
+  aspect-ratio: 1;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 34% 25%, rgba(186, 237, 249, 0.15), transparent 22%),
+    linear-gradient(rgba(2, 13, 20, 0.18), rgba(2, 13, 20, 0.34)),
+    url("/earth-texture.jpg") center / cover no-repeat;
+  background-blend-mode: screen, multiply, normal;
+  border: 1px solid rgba(190, 231, 243, 0.17);
+  border-radius: 50%;
+  box-shadow:
+    inset 0 0 90px rgba(0, 7, 12, 0.54),
+    0 0 90px rgba(38, 133, 166, 0.12);
+  filter: grayscale(0.16) saturate(0.58) contrast(1.18) brightness(0.78);
+}
+
+.minimal-earth::after {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 36% 31%, transparent 0 42%, rgba(0, 8, 13, 0.1) 64%, rgba(0, 5, 9, 0.74) 100%),
+    linear-gradient(90deg, rgba(1, 8, 13, 0.16), transparent 24% 72%, rgba(1, 8, 13, 0.35));
+  content: "";
+  pointer-events: none;
+}
+
+.minimal-earth-grid {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background:
+    linear-gradient(90deg, transparent 49.85%, rgba(207, 241, 249, 0.16) 50%, transparent 50.15%),
+    linear-gradient(transparent 49.85%, rgba(207, 241, 249, 0.12) 50%, transparent 50.15%),
+    repeating-radial-gradient(circle, transparent 0 14.9%, rgba(207, 241, 249, 0.08) 15% 15.18%);
+  border-radius: inherit;
+  opacity: 0.72;
+  pointer-events: none;
+}
+
+.map-marker {
+  position: absolute;
+  z-index: 3;
+  display: grid;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  cursor: pointer;
+  background: rgba(218, 247, 253, 0.07);
+  border: 1px solid rgba(218, 247, 253, 0.16);
+  border-radius: 50%;
+  place-items: center;
+  transform: translate(-50%, -50%);
+  transition: transform 170ms ease, background 170ms ease, border-color 170ms ease;
+}
+
+.map-marker span {
+  width: 7px;
+  height: 7px;
+  background: #f3fdff;
+  border-radius: 50%;
+  box-shadow: 0 0 11px rgba(186, 238, 250, 0.92);
+}
+
+.map-marker:hover,
+.map-marker:focus-visible {
+  background: rgba(218, 247, 253, 0.14);
+  border-color: rgba(218, 247, 253, 0.4);
+  outline: none;
+  transform: translate(-50%, -50%) scale(1.12);
+}
+
+.map-marker.is-selected {
+  width: 52px;
+  height: 52px;
+  background: rgba(212, 245, 252, 0.1);
+  border-color: rgba(232, 251, 255, 0.65);
+  box-shadow: 0 0 26px rgba(89, 193, 219, 0.22);
+}
+
+.map-marker.is-selected span {
+  width: 9px;
+  height: 9px;
 }
 
 .satellite-card {
-  top: 282px;
+  top: 246px;
   right: auto;
-  left: 48px;
-  width: min(350px, calc(100vw - 96px));
-  max-height: calc(100svh - 320px);
+  left: 40px;
+  width: min(330px, calc(100vw - 80px));
+  max-height: calc(100svh - 324px);
+  padding: 22px;
   overflow-y: auto;
-  padding: 27px;
-  background:
-    linear-gradient(145deg, rgba(7, 20, 38, 0.78), rgba(3, 9, 17, 0.9)),
-    rgba(7, 20, 38, 0.88);
-  border-color: rgba(151, 209, 234, 0.14);
-  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.42);
-}
-
-.satellite-card::before {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 2px;
-  background: linear-gradient(90deg, #69dcff, rgba(105, 220, 255, 0));
-  content: "";
+  background: rgba(5, 15, 23, 0.88);
+  border-color: rgba(160, 213, 231, 0.13);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(18px);
 }
 
 .satellite-card h2 {
-  font-size: 29px;
+  margin-top: 15px;
+  font-size: 26px;
+}
+
+.facts-grid {
+  gap: 15px 18px;
+  padding: 17px 0;
+  margin-top: 19px;
+}
+
+.function-block {
+  padding: 17px 0;
+}
+
+.operator-block {
+  padding-bottom: 17px;
 }
 
 .satellite-navigation {
-  bottom: 30px;
+  right: 38px;
+  bottom: 28px;
   left: auto;
-  right: 48px;
   transform: none;
 }
 
 .position-readout {
-  right: 48px;
-  bottom: 91px;
+  right: 40px;
+  bottom: 86px;
+}
+
+@media (max-width: 960px) {
+  .minimal-earth {
+    right: -17vw;
+    width: 78vw;
+  }
 }
 
 @media (max-width: 760px) {
   .site-header {
-    height: 68px;
+    height: 66px;
     padding: 0 20px;
   }
 
   .scene-intro {
-    top: 94px;
+    top: 88px;
     left: 20px;
+    width: calc(100vw - 40px);
+  }
+
+  .scene-intro h1 {
+    font-size: 27px;
+  }
+
+  .minimal-earth {
+    top: 124px;
+    right: -27vw;
+    width: 112vw;
+    opacity: 0.83;
   }
 
   .satellite-card {
     top: auto;
     right: 14px;
-    bottom: 78px;
+    bottom: 76px;
     left: 14px;
     width: auto;
-    max-height: 61svh;
-  }
-
-  .earth-visual {
-    top: 68px;
-    right: -18vw;
-    bottom: 36%;
-    width: 108vw;
-    -webkit-mask-image: linear-gradient(0deg, transparent 0%, #000 25%, #000 100%);
-    mask-image: linear-gradient(0deg, transparent 0%, #000 25%, #000 100%);
+    max-height: 54svh;
+    padding: 21px;
   }
 
   .satellite-navigation {
     right: auto;
+    bottom: 18px;
     left: 50%;
-    bottom: 20px;
     transform: translateX(-50%);
   }
 }
