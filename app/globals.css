@@ -700,7 +700,7 @@ a {
 
 .space-canvas {
   z-index: 1;
-  pointer-events: none;
+  pointer-events: auto;
 }
 
 .earth-visual {
@@ -819,7 +819,7 @@ a {
 }
 
 .scene-intro {
-  top: 114px;
+  top: 124px;
   left: 48px;
 }
 
@@ -830,10 +830,12 @@ a {
 }
 
 .satellite-card {
-  top: 178px;
+  top: 282px;
   right: auto;
   left: 48px;
-  width: min(390px, calc(100vw - 96px));
+  width: min(350px, calc(100vw - 96px));
+  max-height: calc(100svh - 320px);
+  overflow-y: auto;
   padding: 27px;
   background:
     linear-gradient(145deg, rgba(7, 20, 38, 0.78), rgba(3, 9, 17, 0.9)),
@@ -885,6 +887,7 @@ a {
     bottom: 78px;
     left: 14px;
     width: auto;
+    max-height: 61svh;
   }
 
   .earth-visual {
