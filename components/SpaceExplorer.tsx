@@ -1,7 +1,7 @@
 "use client";
 
 import { Stars } from "@react-three/drei";
-import { Canvas, useFrame } from "@react-three/fiber";
+import { Canvas } from "@react-three/fiber";
 import Link from "next/link";
 import {
   eciToGeodetic,
@@ -10,9 +10,7 @@ import {
   propagate,
   twoline2satrec,
 } from "satellite.js";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { MathUtils, Vector3 } from "three";
-import type { Group, Mesh } from "three";
+import { useEffect, useMemo, useState } from "react";
 import type { SatelliteRecord } from "@/lib/types";
 
 type OrbitalPoint = {
@@ -36,26 +34,12 @@ type EnrichedSatellite = Pick<
   | "operatorEnrichedAt"
 >;
 
-const EARTH_RADIUS_KM = 6378.137;
 const POSITION_UPDATE_INTERVAL_MS = 1_000;
 const INITIAL_ORBITAL_POINT: OrbitalPoint = {
   latitude: 0,
   longitude: 0,
   altitude: 0,
 };
-
-function dampAngle(
-  current: number,
-  target: number,
-  smoothing: number,
-  delta: number,
-) {
-  const difference = Math.atan2(
-    Math.sin(target - current),
-    Math.cos(target - current),
-  );
-  return current + difference * (1 - Math.exp(-smoothing * delta));
-}
 
 function getOrbitalPoint(
   satellite: SatelliteRecord,
@@ -87,188 +71,18 @@ function getOrbitalPoint(
   }
 }
 
-function Earth({ orbitalPoint }: { orbitalPoint: OrbitalPoint }) {
-  const grid = useRef<Mesh>(null);
-  const targetLongitude = -MathUtils.degToRad(orbitalPoint.longitude);
-  const targetLatitude = MathUtils.degToRad(orbitalPoint.latitude) * 0.22;
-
-  useFrame((_, delta) => {
-    if (!grid.current) return;
-    grid.current.rotation.y = dampAngle(
-      grid.current.rotation.y,
-      targetLongitude,
-      1.8,
-      delta,
-    );
-    grid.current.rotation.x = MathUtils.damp(
-      grid.current.rotation.x,
-      0.08 + targetLatitude,
-      1.8,
-      delta,
-    );
-  });
-
-  return (
-    <group position={[2.1, -3.9, 0]}>
-      <mesh>
-        <sphereGeometry args={[4.45, 96, 96]} />
-        <meshStandardMaterial
-          color="#071f39"
-          emissive="#03162a"
-          emissiveIntensity={0.55}
-          metalness={0.1}
-          roughness={0.86}
-        />
-      </mesh>
-
-      <mesh ref={grid} rotation={[0.08, targetLongitude, 0]}>
-        <sphereGeometry args={[4.47, 48, 48]} />
-        <meshBasicMaterial
-          color="#2c8bc0"
-          wireframe
-          transparent
-          opacity={0.085}
-        />
-      </mesh>
-
-      <mesh>
-        <sphereGeometry args={[4.58, 96, 96]} />
-        <meshBasicMaterial
-          color="#4cbaf2"
-          transparent
-          opacity={0.08}
-          side={1}
-        />
-      </mesh>
-
-      <mesh rotation={[Math.PI / 2, 0, 0]} position={[0, 4.44, 0]}>
-        <ringGeometry args={[0.08, 0.14, 48]} />
-        <meshBasicMaterial color="#73ddff" transparent opacity={0.8} />
-      </mesh>
-    </group>
-  );
-}
-
-function SatelliteMarker({
-  selected,
-  onSelect,
-  orbitalPoint,
-}: {
-  selected: boolean;
-  onSelect: () => void;
-  orbitalPoint: OrbitalPoint;
-}) {
-  const group = useRef<Group>(null);
-  const marker = useRef<Mesh>(null);
-  const [hovered, setHovered] = useState(false);
-  const targetPosition = useMemo(() => {
-    const longitudeProgress = orbitalPoint.longitude / 180;
-    const latitudeProgress = orbitalPoint.latitude / 90;
-    const altitudeOffset = MathUtils.clamp(
-      orbitalPoint.altitude / EARTH_RADIUS_KM,
-      0,
-      0.18,
-    );
-
-    return new Vector3(
-      3.05 + longitudeProgress * 3.45,
-      -1.05 + latitudeProgress * 2.25 + altitudeOffset,
-      0.45,
-    );
-  }, [orbitalPoint]);
-
-  useFrame(({ clock }, delta) => {
-    if (group.current) {
-      if (Math.abs(group.current.position.x - targetPosition.x) > 6) {
-        group.current.position.x = targetPosition.x;
-      }
-      group.current.position.lerp(
-        targetPosition,
-        1 - Math.exp(-4.5 * delta),
-      );
-    }
-
-    if (marker.current) {
-      const pulse = 1 + Math.sin(clock.elapsedTime * 3.2) * 0.12;
-      marker.current.scale.setScalar(pulse);
-    }
-  });
-
-  useEffect(() => {
-    document.body.style.cursor = hovered ? "pointer" : "default";
-    return () => {
-      document.body.style.cursor = "default";
-    };
-  }, [hovered]);
-
-  return (
-    <group ref={group} position={targetPosition}>
-      <mesh
-        ref={marker}
-        onClick={(event) => {
-          event.stopPropagation();
-          onSelect();
-        }}
-        onPointerEnter={() => setHovered(true)}
-        onPointerLeave={() => setHovered(false)}
-      >
-        <sphereGeometry args={[selected ? 0.1 : 0.075, 32, 32]} />
-        <meshBasicMaterial color="#d7f7ff" />
-      </mesh>
-      <pointLight color="#55cfff" intensity={selected ? 7 : 4} distance={4} />
-      <mesh>
-        <ringGeometry args={[0.19, 0.205, 64]} />
-        <meshBasicMaterial
-          color="#67d8ff"
-          transparent
-          opacity={selected ? 0.75 : 0.34}
-        />
-      </mesh>
-    </group>
-  );
-}
-
-function OrbitalScene({
-  satellites,
-  selectedIndex,
-  selected,
-  onSelect,
-  orbitalPoints,
-}: {
-  selected: boolean;
-  onSelect: (index: number) => void;
-  satellites: SatelliteRecord[];
-  selectedIndex: number;
-  orbitalPoints: OrbitalPoint[];
-}) {
+function OrbitalScene() {
   return (
     <>
-      <color attach="background" args={["#02050a"]} />
-      <fog attach="fog" args={["#02050a", 11, 26]} />
-      <ambientLight intensity={0.35} color="#6ba9c9" />
-      <directionalLight
-        position={[-6, 8, 10]}
-        intensity={2.4}
-        color="#bceaff"
-      />
       <Stars
         radius={70}
         depth={38}
-        count={1600}
+        count={720}
         factor={1.9}
         saturation={0.1}
         fade
         speed={0.25}
       />
-      <Earth orbitalPoint={orbitalPoints[selectedIndex] ?? INITIAL_ORBITAL_POINT} />
-      {satellites.map((satellite, index) => (
-        <SatelliteMarker
-          key={satellite.noradId}
-          selected={selected && index === selectedIndex}
-          onSelect={() => onSelect(index)}
-          orbitalPoint={orbitalPoints[index] ?? INITIAL_ORBITAL_POINT}
-        />
-      ))}
     </>
   );
 }
@@ -321,9 +135,6 @@ export function SpaceExplorer({
   const [orbitalPoint, setOrbitalPoint] = useState<OrbitalPoint>(
     INITIAL_ORBITAL_POINT,
   );
-  const [orbitalPoints, setOrbitalPoints] = useState<OrbitalPoint[]>(
-    () => satellites.map((item) => getOrbitalPoint(item)),
-  );
   const satellite = catalog[selectedIndex] ?? catalog[0];
 
   useEffect(() => {
@@ -331,18 +142,31 @@ export function SpaceExplorer({
   }, [satellites]);
 
   useEffect(() => {
-    const update = () => {
-      const nextPoints = catalog.map((item) => getOrbitalPoint(item));
-      setOrbitalPoints(nextPoints);
-      setOrbitalPoint(nextPoints[selectedIndex] ?? INITIAL_ORBITAL_POINT);
-    };
+    const update = () => setOrbitalPoint(getOrbitalPoint(satellite));
     update();
     const interval = window.setInterval(
       update,
       POSITION_UPDATE_INTERVAL_MS,
     );
     return () => window.clearInterval(interval);
-  }, [catalog, satellite, selectedIndex]);
+  }, [satellite]);
+
+  const markerIndices = useMemo(
+    () =>
+      Array.from(new Set([selectedIndex, 0, 1, 2, 3, 4])).filter(
+        (index) => index < catalog.length,
+      ),
+    [catalog.length, selectedIndex],
+  );
+
+  const markerPositions = [
+    { left: "31%", top: "42%" },
+    { left: "43%", top: "55%" },
+    { left: "55%", top: "48%" },
+    { left: "66%", top: "34%" },
+    { left: "50%", top: "70%" },
+    { left: "74%", top: "73%" },
+  ];
 
   const launchYear = useMemo(
     () =>
@@ -504,20 +328,33 @@ export function SpaceExplorer({
         className="space-canvas"
         camera={{ position: [0, 0.1, 11.6], fov: 48 }}
         dpr={[1, 1.65]}
-        gl={{ antialias: true }}
-        onPointerMissed={() => setSelected(false)}
+        gl={{ antialias: true, alpha: true }}
       >
-        <OrbitalScene
-          satellites={catalog}
-          selectedIndex={selectedIndex}
-          selected={selected}
-          onSelect={(index) => {
-            setSelectedIndex(index);
-            setSelected(true);
-          }}
-          orbitalPoints={orbitalPoints}
-        />
+        <OrbitalScene />
       </Canvas>
+
+      <div className="earth-visual" aria-label="Earth orbital map">
+        <div className="earth-marker-layer">
+          {markerIndices.map((index, slot) => {
+            const markerSatellite = catalog[index];
+            const position = markerPositions[slot % markerPositions.length];
+            const isSelected = selected && index === selectedIndex;
+
+            return (
+              <button
+                className={`earth-marker${isSelected ? " is-selected" : ""}`}
+                key={markerSatellite.noradId}
+                style={position}
+                type="button"
+                aria-label={`Select ${markerSatellite.name}`}
+                onClick={() => selectSatellite(index)}
+              >
+                <span />
+              </button>
+            );
+          })}
+        </div>
+      </div>
 
       <header className="site-header">
         <Link className="brand" href="/" aria-label="OpenSpace home">
