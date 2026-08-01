@@ -109,7 +109,7 @@ function Earth({ orbitalPoint }: { orbitalPoint: OrbitalPoint }) {
   });
 
   return (
-    <group position={[0, -4.75, 0]}>
+    <group position={[2.1, -3.9, 0]}>
       <mesh>
         <sphereGeometry args={[4.45, 96, 96]} />
         <meshStandardMaterial
@@ -171,9 +171,9 @@ function SatelliteMarker({
     );
 
     return new Vector3(
-      longitudeProgress * 3.8,
-      0.92 + latitudeProgress * 1.35 + altitudeOffset,
-      0,
+      3.05 + longitudeProgress * 3.45,
+      -1.05 + latitudeProgress * 2.25 + altitudeOffset,
+      0.45,
     );
   }, [orbitalPoint]);
 
@@ -229,13 +229,17 @@ function SatelliteMarker({
 }
 
 function OrbitalScene({
+  satellites,
+  selectedIndex,
   selected,
   onSelect,
-  orbitalPoint,
+  orbitalPoints,
 }: {
   selected: boolean;
-  onSelect: () => void;
-  orbitalPoint: OrbitalPoint;
+  onSelect: (index: number) => void;
+  satellites: SatelliteRecord[];
+  selectedIndex: number;
+  orbitalPoints: OrbitalPoint[];
 }) {
   return (
     <>
@@ -256,12 +260,15 @@ function OrbitalScene({
         fade
         speed={0.25}
       />
-      <Earth orbitalPoint={orbitalPoint} />
-      <SatelliteMarker
-        selected={selected}
-        onSelect={onSelect}
-        orbitalPoint={orbitalPoint}
-      />
+      <Earth orbitalPoint={orbitalPoints[selectedIndex] ?? INITIAL_ORBITAL_POINT} />
+      {satellites.map((satellite, index) => (
+        <SatelliteMarker
+          key={satellite.noradId}
+          selected={selected && index === selectedIndex}
+          onSelect={() => onSelect(index)}
+          orbitalPoint={orbitalPoints[index] ?? INITIAL_ORBITAL_POINT}
+        />
+      ))}
     </>
   );
 }
@@ -314,6 +321,9 @@ export function SpaceExplorer({
   const [orbitalPoint, setOrbitalPoint] = useState<OrbitalPoint>(
     INITIAL_ORBITAL_POINT,
   );
+  const [orbitalPoints, setOrbitalPoints] = useState<OrbitalPoint[]>(
+    () => satellites.map((item) => getOrbitalPoint(item)),
+  );
   const satellite = catalog[selectedIndex] ?? catalog[0];
 
   useEffect(() => {
@@ -321,14 +331,18 @@ export function SpaceExplorer({
   }, [satellites]);
 
   useEffect(() => {
-    const update = () => setOrbitalPoint(getOrbitalPoint(satellite));
+    const update = () => {
+      const nextPoints = catalog.map((item) => getOrbitalPoint(item));
+      setOrbitalPoints(nextPoints);
+      setOrbitalPoint(nextPoints[selectedIndex] ?? INITIAL_ORBITAL_POINT);
+    };
     update();
     const interval = window.setInterval(
       update,
       POSITION_UPDATE_INTERVAL_MS,
     );
     return () => window.clearInterval(interval);
-  }, [satellite]);
+  }, [catalog, satellite, selectedIndex]);
 
   const launchYear = useMemo(
     () =>
@@ -494,9 +508,14 @@ export function SpaceExplorer({
         onPointerMissed={() => setSelected(false)}
       >
         <OrbitalScene
+          satellites={catalog}
+          selectedIndex={selectedIndex}
           selected={selected}
-          onSelect={() => setSelected(true)}
-          orbitalPoint={orbitalPoint}
+          onSelect={(index) => {
+            setSelectedIndex(index);
+            setSelected(true);
+          }}
+          orbitalPoints={orbitalPoints}
         />
       </Canvas>
 

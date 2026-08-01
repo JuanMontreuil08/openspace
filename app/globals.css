@@ -689,3 +689,103 @@ a {
     opacity: 0.75;
   }
 }
+
+/* Figma handoff: editorial left rail + orbital field */
+.explorer-shell {
+  background:
+    radial-gradient(circle at 78% 64%, rgba(37, 122, 161, 0.2), transparent 24%),
+    radial-gradient(circle at 72% 96%, rgba(17, 58, 88, 0.26), transparent 36%),
+    #02050a;
+}
+
+.explorer-shell::after {
+  background:
+    linear-gradient(90deg, rgba(2, 5, 10, 0.08), transparent 30% 70%, rgba(2, 5, 10, 0.12)),
+    linear-gradient(0deg, rgba(2, 5, 10, 0.3), transparent 32%);
+}
+
+.site-header {
+  height: 90px;
+  padding: 0 48px;
+  background: rgba(6, 16, 29, 0.84);
+  border-bottom-color: rgba(151, 209, 234, 0.12);
+  backdrop-filter: blur(18px);
+}
+
+.brand {
+  letter-spacing: 0.18em;
+}
+
+.brand-mark {
+  width: 10px;
+  height: 10px;
+  background: #e9f6fb;
+  box-shadow: 0 0 18px rgba(105, 220, 255, 0.9);
+}
+
+.scene-intro {
+  top: 114px;
+  left: 48px;
+}
+
+.scene-intro h1 {
+  margin: 10px 0 6px;
+  font-size: clamp(24px, 2.8vw, 38px);
+  font-weight: 400;
+}
+
+.satellite-card {
+  top: 178px;
+  right: auto;
+  left: 48px;
+  width: min(390px, calc(100vw - 96px));
+  padding: 27px;
+  background:
+    linear-gradient(145deg, rgba(7, 20, 38, 0.78), rgba(3, 9, 17, 0.9)),
+    rgba(7, 20, 38, 0.88);
+  border-color: rgba(151, 209, 234, 0.14);
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.42);
+}
+
+.satellite-card h2 {
+  font-size: 29px;
+}
+
+.satellite-navigation {
+  bottom: 30px;
+  left: auto;
+  right: 48px;
+  transform: none;
+}
+
+.position-readout {
+  right: 48px;
+  bottom: 91px;
+}
+
+@media (max-width: 760px) {
+  .site-header {
+    height: 68px;
+    padding: 0 20px;
+  }
+
+  .scene-intro {
+    top: 94px;
+    left: 20px;
+  }
+
+  .satellite-card {
+    top: auto;
+    right: 14px;
+    bottom: 78px;
+    left: 14px;
+    width: auto;
+  }
+
+  .satellite-navigation {
+    right: auto;
+    left: 50%;
+    bottom: 20px;
+    transform: translateX(-50%);
+  }
+}
