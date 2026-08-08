@@ -1,26 +1,36 @@
 "use client";
 
 import Link from "next/link";
-import dynamic from "next/dynamic";
 import {
   eciToGeodetic,
   gstime,
   json2satrec,
   propagate,
   twoline2satrec,
+  type SatRec,
 } from "satellite.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { SatelliteMap } from "@/components/SatelliteMap";
+import {
+  findGroundTrackSample,
+  formatGroundTrackOffset,
+  type GroundTrackPoint,
+  type GroundTrackSample,
+} from "@/lib/ground-track";
 import type { SatelliteRecord } from "@/lib/types";
-
-// Lazy-load globe (avoid SSR — cobe uses canvas)
-const Globe = dynamic(() => import("./Globe").then((m) => m.Globe), {
-  ssr: false,
-});
 
 type OrbitalPoint = {
   latitude: number;
   longitude: number;
   altitude: number;
+  velocity: number;
+  heading: number;
+};
+
+type OrbitTrack = {
+  past: GroundTrackSample[];
+  predicted: GroundTrackSample[];
+  calculatedAt: Date;
 };
 
 type EnrichmentState = {
@@ -39,40 +49,122 @@ type EnrichedSatellite = Pick<
 >;
 
 const POSITION_UPDATE_INTERVAL_MS = 1_000;
+const TRACK_UPDATE_INTERVAL_MS = 30_000;
+const TRACK_SAMPLE_INTERVAL_MS = 30_000;
+const PAST_TRACK_MINUTES = 20;
+const PREDICTED_TRACK_MINUTES = 40;
 const INITIAL_ORBITAL_POINT: OrbitalPoint = {
   latitude: 0,
   longitude: 0,
   altitude: 0,
+  velocity: 0,
+  heading: 0,
 };
+const INITIAL_ORBIT_TRACK: OrbitTrack = {
+  past: [],
+  predicted: [],
+  calculatedAt: new Date(0),
+};
+
+function getSatelliteRecord(satellite: SatelliteRecord): SatRec | null {
+  if (satellite.orbitalElements) {
+    return json2satrec(satellite.orbitalElements);
+  }
+  if (satellite.tleLine1 && satellite.tleLine2) {
+    return twoline2satrec(satellite.tleLine1, satellite.tleLine2);
+  }
+  return null;
+}
+
+function propagateOrbitalPoint(satrec: SatRec, date: Date) {
+  const result = propagate(satrec, date);
+  if (!result?.position || typeof result.position === "boolean") return null;
+
+  const geodetic = eciToGeodetic(result.position, gstime(date));
+  const velocity =
+    result.velocity && typeof result.velocity !== "boolean"
+      ? Math.hypot(result.velocity.x, result.velocity.y, result.velocity.z)
+      : 0;
+  return {
+    latitude: (geodetic.latitude * 180) / Math.PI,
+    longitude: (geodetic.longitude * 180) / Math.PI,
+    altitude: geodetic.height,
+    velocity,
+  };
+}
+
+function calculateBearing(from: GroundTrackPoint, to: GroundTrackPoint) {
+  const latitude1 = (from.latitude * Math.PI) / 180;
+  const latitude2 = (to.latitude * Math.PI) / 180;
+  const longitudeDelta = ((to.longitude - from.longitude) * Math.PI) / 180;
+  const y = Math.sin(longitudeDelta) * Math.cos(latitude2);
+  const x =
+    Math.cos(latitude1) * Math.sin(latitude2) -
+    Math.sin(latitude1) * Math.cos(latitude2) * Math.cos(longitudeDelta);
+  return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+}
 
 function getOrbitalPoint(
   satellite: SatelliteRecord,
   date = new Date(),
 ): OrbitalPoint {
   try {
-    const satrec = satellite.orbitalElements
-      ? json2satrec(satellite.orbitalElements)
-      : satellite.tleLine1 && satellite.tleLine2
-        ? twoline2satrec(satellite.tleLine1, satellite.tleLine2)
-        : null;
+    const satrec = getSatelliteRecord(satellite);
     if (!satrec) {
       throw new Error("Orbital elements unavailable");
     }
-    const result = propagate(satrec, date);
-
-    if (!result?.position || typeof result.position === "boolean") {
+    const current = propagateOrbitalPoint(satrec, date);
+    const next = propagateOrbitalPoint(
+      satrec,
+      new Date(date.getTime() + 10_000),
+    );
+    if (!current || !next) {
       throw new Error("Position unavailable");
     }
-
-    const geodetic = eciToGeodetic(result.position, gstime(date));
     return {
-      latitude: (geodetic.latitude * 180) / Math.PI,
-      longitude: (geodetic.longitude * 180) / Math.PI,
-      altitude: geodetic.height,
+      ...current,
+      heading: calculateBearing(current, next),
     };
   } catch {
-    return { latitude: 0, longitude: 0, altitude: 0 };
+    return INITIAL_ORBITAL_POINT;
   }
+}
+
+function getOrbitTrack(
+  satellite: SatelliteRecord,
+  calculatedAt = new Date(),
+): OrbitTrack {
+  try {
+    const satrec = getSatelliteRecord(satellite);
+    if (!satrec) return { ...INITIAL_ORBIT_TRACK, calculatedAt };
+
+    const past: GroundTrackSample[] = [];
+    const predicted: GroundTrackSample[] = [];
+    const start = -PAST_TRACK_MINUTES * 60_000;
+    const end = PREDICTED_TRACK_MINUTES * 60_000;
+    for (let offset = start; offset <= end; offset += TRACK_SAMPLE_INTERVAL_MS) {
+      const point = propagateOrbitalPoint(
+        satrec,
+        new Date(calculatedAt.getTime() + offset),
+      );
+      if (!point) continue;
+      const trackPoint = {
+        latitude: point.latitude,
+        longitude: point.longitude,
+        offsetMinutes: offset / 60_000,
+      };
+      if (offset <= 0) past.push(trackPoint);
+      if (offset >= 0) predicted.push(trackPoint);
+    }
+    return { past, predicted, calculatedAt };
+  } catch {
+    return { ...INITIAL_ORBIT_TRACK, calculatedAt };
+  }
+}
+
+function headingLabel(heading: number) {
+  const directions = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+  return `${Math.round(heading)}° ${directions[Math.round(heading / 45) % 8]}`;
 }
 
 function Coordinate({ value, axis }: { value: number; axis: "lat" | "lon" }) {
@@ -107,24 +199,6 @@ function sourceHostname(url: string) {
   }
 }
 
-/* ── Globe size hook ── */
-
-function useGlobeSize() {
-  const [size, setSize] = useState(600);
-  useEffect(() => {
-    const update = () => {
-      const vw = window.innerWidth;
-      const vh = window.innerHeight;
-      const min = Math.min(vw, vh);
-      setSize(Math.max(300, Math.min(min * 0.75, 680)));
-    };
-    update();
-    window.addEventListener("resize", update);
-    return () => window.removeEventListener("resize", update);
-  }, []);
-  return size;
-}
-
 /* ── Theme hook ── */
 
 function useTheme() {
@@ -136,8 +210,9 @@ function useTheme() {
       | "light"
       | null;
     if (stored) {
-      setTheme(stored);
       document.documentElement.setAttribute("data-theme", stored);
+      const timer = window.setTimeout(() => setTheme(stored), 0);
+      return () => window.clearTimeout(timer);
     }
   }, []);
 
@@ -191,10 +266,6 @@ function CommandPalette({
   }, []);
 
   useEffect(() => {
-    setHighlightedIndex(0);
-  }, [query]);
-
-  useEffect(() => {
     const list = listRef.current;
     if (!list) return;
     const item = list.children[highlightedIndex] as HTMLElement | undefined;
@@ -233,7 +304,10 @@ function CommandPalette({
             type="text"
             placeholder="Search by name, NORAD ID, operator, or country…"
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setHighlightedIndex(0);
+            }}
             spellCheck={false}
             autoComplete="off"
           />
@@ -287,18 +361,42 @@ export function SpaceExplorer({
   dataMode: "live" | "demo";
 }) {
   const { theme, toggle: toggleTheme } = useTheme();
-  const globeSize = useGlobeSize();
   const [catalog, setCatalog] = useState(satellites);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [panelOpen, setPanelOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [followSatellite, setFollowSatellite] = useState(true);
+  const [inspectedOffsetMinutes, setInspectedOffsetMinutes] = useState<number | null>(null);
   const [enrichmentStates, setEnrichmentStates] = useState<
     Record<number, EnrichmentState>
   >({});
   const [orbitalPoint, setOrbitalPoint] = useState<OrbitalPoint>(
     INITIAL_ORBITAL_POINT,
   );
+  const [orbitTrack, setOrbitTrack] = useState<OrbitTrack>(
+    INITIAL_ORBIT_TRACK,
+  );
   const satellite = catalog[selectedIndex] ?? catalog[0];
+  const inspectedPoint = useMemo(() => {
+    if (inspectedOffsetMinutes === null) return null;
+    return findGroundTrackSample(
+      [...orbitTrack.past, ...orbitTrack.predicted],
+      inspectedOffsetMinutes,
+    );
+  }, [inspectedOffsetMinutes, orbitTrack.past, orbitTrack.predicted]);
+  const inspectionLabel = inspectedPoint
+    ? formatGroundTrackOffset(inspectedPoint.offsetMinutes)
+    : null;
+  const inspectedAt = inspectedPoint
+    ? new Date(
+        orbitTrack.calculatedAt.getTime() + inspectedPoint.offsetMinutes * 60_000,
+      )
+    : null;
+
+  const returnToLive = useCallback(() => {
+    setInspectedOffsetMinutes(null);
+    setFollowSatellite(true);
+  }, []);
 
   useEffect(() => {
     setCatalog(satellites);
@@ -308,6 +406,13 @@ export function SpaceExplorer({
     const update = () => setOrbitalPoint(getOrbitalPoint(satellite));
     update();
     const interval = window.setInterval(update, POSITION_UPDATE_INTERVAL_MS);
+    return () => window.clearInterval(interval);
+  }, [satellite]);
+
+  useEffect(() => {
+    const update = () => setOrbitTrack(getOrbitTrack(satellite));
+    update();
+    const interval = window.setInterval(update, TRACK_UPDATE_INTERVAL_MS);
     return () => window.clearInterval(interval);
   }, [satellite]);
 
@@ -341,6 +446,8 @@ export function SpaceExplorer({
   const selectSatellite = useCallback((index: number) => {
     setSelectedIndex(index);
     setPanelOpen(true);
+    setFollowSatellite(true);
+    setInspectedOffsetMinutes(null);
   }, []);
 
   const selectPrevious = () =>
@@ -483,16 +590,19 @@ export function SpaceExplorer({
   };
 
   return (
-    <main className="explorer-shell">
-      {/* Globe */}
-      <div className="globe-container">
-        <Globe
-          latitude={orbitalPoint.latitude}
-          longitude={orbitalPoint.longitude}
-          lightMode={theme === "light"}
-          size={globeSize}
-        />
-      </div>
+    <main className={`explorer-shell${panelOpen ? " has-detail-panel" : ""}`}>
+      <SatelliteMap
+        current={orbitalPoint}
+        past={orbitTrack.past}
+        predicted={orbitTrack.predicted}
+        inspected={inspectedPoint}
+        inspectionLabel={inspectionLabel}
+        satelliteName={satellite.name}
+        theme={theme}
+        follow={followSatellite}
+        onFollowChange={setFollowSatellite}
+        onReturnToLive={returnToLive}
+      />
 
       {/* Header */}
       <header className="site-header">
@@ -572,6 +682,119 @@ export function SpaceExplorer({
             </svg>
           </button>
         )}
+      </section>
+
+      {!panelOpen && (
+        <aside className="map-position-card" aria-label="Satellite position summary">
+          <p className="position-card-kicker">Satellite information</p>
+          <p className="position-card-satellite-name">{satellite.name}</p>
+          <p className="position-card-context">Currently overflying</p>
+          <h2>
+            <Coordinate value={orbitalPoint.latitude} axis="lat" /> ·{" "}
+            <Coordinate value={orbitalPoint.longitude} axis="lon" />
+          </h2>
+          <p className="position-card-subtitle">
+            Follow the marker to inspect the cities, terrain, and borders below.
+          </p>
+          <dl className="position-stats">
+            <div>
+              <dt>Altitude</dt>
+              <dd>{orbitalPoint.altitude.toFixed(1)} km</dd>
+            </div>
+            <div>
+              <dt>Velocity</dt>
+              <dd>{orbitalPoint.velocity.toFixed(2)} km/s</dd>
+            </div>
+            <div>
+              <dt>Heading</dt>
+              <dd>{headingLabel(orbitalPoint.heading)}</dd>
+            </div>
+            <div>
+              <dt>NORAD ID</dt>
+              <dd>{satellite.noradId}</dd>
+            </div>
+          </dl>
+          <button
+            type="button"
+            className="follow-satellite-button"
+            aria-pressed={followSatellite}
+            onClick={() => {
+              if (inspectedPoint || !followSatellite) returnToLive();
+              else setFollowSatellite(false);
+            }}
+          >
+            <span>Follow satellite</span>
+            <span>{followSatellite ? "ON" : "OFF"}</span>
+          </button>
+          <button
+            type="button"
+            className="open-profile-button"
+            onClick={() => setPanelOpen(true)}
+          >
+            Open complete satellite profile
+          </button>
+        </aside>
+      )}
+
+      <section className="ground-track-panel" aria-label="Satellite ground track timeline">
+        <div className="ground-track-header">
+          <div className="ground-track-legend">
+            <span><i className="past-line" />Past</span>
+            <span><i className="predicted-line" />Predicted</span>
+            {inspectedPoint && (
+              <button type="button" onClick={returnToLive}>
+                Return to live
+              </button>
+            )}
+          </div>
+          {inspectedPoint && inspectedAt ? (
+            <div className="ground-track-selection" aria-live="polite">
+              <output htmlFor="ground-track-scrubber">
+                {inspectionLabel} · {inspectedAt.toLocaleTimeString([], {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                  second: "2-digit",
+                })}
+              </output>
+            </div>
+          ) : (
+            <span className="ground-track-live"><i />Live position</span>
+          )}
+        </div>
+        <div className="ground-track-scrubber">
+          <div className="ground-track-bar" aria-hidden="true">
+            <span className="ground-track-past-segment" />
+            <span className="ground-track-future-segment" />
+          </div>
+          <input
+            id="ground-track-scrubber"
+            type="range"
+            min={-PAST_TRACK_MINUTES}
+            max={PREDICTED_TRACK_MINUTES}
+            step={0.5}
+            value={inspectedOffsetMinutes ?? 0}
+            aria-label="Inspect satellite position from 20 minutes ago to 40 minutes ahead"
+            aria-valuetext={formatGroundTrackOffset(inspectedOffsetMinutes ?? 0)}
+            onChange={(event) => {
+              setInspectedOffsetMinutes(Number(event.target.value));
+              setFollowSatellite(false);
+            }}
+          />
+        </div>
+        <div className="ground-track-ticks">
+          <span style={{ left: "0%" }}>−20m</span>
+          <span style={{ left: "16.667%" }}>−10m</span>
+          <span className="is-now" style={{ left: "33.333%" }}>Now</span>
+          <span style={{ left: "50%" }}>+10m</span>
+          <span style={{ left: "66.667%" }}>+20m</span>
+          <span style={{ left: "100%" }}>+40m</span>
+        </div>
+        <p className="ground-track-source">
+          Drag to inspect · 60 min calculated window · SGP4 from {satellite.orbitalElements ? "OMM" : "TLE"}
+          {satellite.orbitalElements?.EPOCH
+            ? ` · epoch ${new Date(satellite.orbitalElements.EPOCH).toLocaleDateString()}`
+            : ""}
+        </p>
       </section>
 
       {/* Slide-out detail panel */}
