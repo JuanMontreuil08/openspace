@@ -11,13 +11,18 @@ import {
 } from "satellite.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SatelliteMap } from "@/components/SatelliteMap";
+import { TextRoll } from "@/components/core/text-roll";
+import { SITE_NAME, THEME_STORAGE_KEY } from "@/lib/brand";
 import {
   findGroundTrackSample,
   formatGroundTrackOffset,
   type GroundTrackPoint,
   type GroundTrackSample,
 } from "@/lib/ground-track";
-import type { SatelliteRecord } from "@/lib/types";
+import { enrichmentPrompt } from "@/lib/enrichment-copy";
+import { getOrbitFreshness } from "@/lib/orbit-freshness";
+import { searchSatelliteCatalog } from "@/lib/satellite-search";
+import type { SatelliteIndexEntry, SatelliteRecord } from "@/lib/types";
 
 type OrbitalPoint = {
   latitude: number;
@@ -41,7 +46,8 @@ type EnrichmentState = {
 type EnrichedSatellite = Pick<
   SatelliteRecord,
   | "noradId"
-  | "function"
+  | "missionDescription"
+  | "operator"
   | "operatorDescription"
   | "sources"
   | "missionEnrichedAt"
@@ -53,13 +59,6 @@ const TRACK_UPDATE_INTERVAL_MS = 30_000;
 const TRACK_SAMPLE_INTERVAL_MS = 30_000;
 const PAST_TRACK_MINUTES = 20;
 const PREDICTED_TRACK_MINUTES = 40;
-const INITIAL_ORBITAL_POINT: OrbitalPoint = {
-  latitude: 0,
-  longitude: 0,
-  altitude: 0,
-  velocity: 0,
-  heading: 0,
-};
 const INITIAL_ORBIT_TRACK: OrbitTrack = {
   past: [],
   predicted: [],
@@ -107,7 +106,7 @@ function calculateBearing(from: GroundTrackPoint, to: GroundTrackPoint) {
 function getOrbitalPoint(
   satellite: SatelliteRecord,
   date = new Date(),
-): OrbitalPoint {
+): OrbitalPoint | null {
   try {
     const satrec = getSatelliteRecord(satellite);
     if (!satrec) {
@@ -126,7 +125,7 @@ function getOrbitalPoint(
       heading: calculateBearing(current, next),
     };
   } catch {
-    return INITIAL_ORBITAL_POINT;
+    return null;
   }
 }
 
@@ -167,6 +166,20 @@ function headingLabel(heading: number) {
   return `${Math.round(heading)}° ${directions[Math.round(heading / 45) % 8]}`;
 }
 
+function formatUtcEpoch(epoch: Date) {
+  return new Intl.DateTimeFormat("en", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+    timeZone: "UTC",
+    timeZoneName: "short",
+  }).format(epoch);
+}
+
 function Coordinate({ value, axis }: { value: number; axis: "lat" | "lon" }) {
   const direction =
     axis === "lat"
@@ -199,27 +212,35 @@ function sourceHostname(url: string) {
   }
 }
 
+function isSafeExternalUrl(url: string) {
+  try {
+    const protocol = new URL(url).protocol;
+    return protocol === "https:" || protocol === "http:";
+  } catch {
+    return false;
+  }
+}
+
 /* ── Theme hook ── */
 
 function useTheme() {
-  const [theme, setTheme] = useState<"dark" | "light">("dark");
+  const [theme, setTheme] = useState<"dark" | "light">("light");
 
   useEffect(() => {
-    const stored = localStorage.getItem("openspace-theme") as
+    const stored = localStorage.getItem(THEME_STORAGE_KEY) as
       | "dark"
       | "light"
       | null;
-    if (stored) {
-      document.documentElement.setAttribute("data-theme", stored);
-      const timer = window.setTimeout(() => setTheme(stored), 0);
-      return () => window.clearTimeout(timer);
-    }
+    const initialTheme = stored === "dark" ? "dark" : "light";
+    document.documentElement.setAttribute("data-theme", initialTheme);
+    const timer = window.setTimeout(() => setTheme(initialTheme), 0);
+    return () => window.clearTimeout(timer);
   }, []);
 
   const toggle = useCallback(() => {
     setTheme((current) => {
       const next = current === "dark" ? "light" : "dark";
-      localStorage.setItem("openspace-theme", next);
+      localStorage.setItem(THEME_STORAGE_KEY, next);
       document.documentElement.setAttribute("data-theme", next);
       return next;
     });
@@ -236,7 +257,7 @@ function CommandPalette({
   onSelect,
   onClose,
 }: {
-  catalog: SatelliteRecord[];
+  catalog: SatelliteIndexEntry[];
   selectedIndex: number;
   onSelect: (index: number) => void;
   onClose: () => void;
@@ -246,20 +267,11 @@ function CommandPalette({
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
-  const filtered = useMemo(() => {
-    if (!query.trim())
-      return catalog.map((s, i) => ({ satellite: s, index: i }));
-    const q = query.toLowerCase();
-    return catalog
-      .map((s, i) => ({ satellite: s, index: i }))
-      .filter(
-        ({ satellite }) =>
-          satellite.name.toLowerCase().includes(q) ||
-          String(satellite.noradId).includes(q) ||
-          (satellite.operator?.toLowerCase().includes(q) ?? false) ||
-          (satellite.country?.toLowerCase().includes(q) ?? false),
-      );
-  }, [catalog, query]);
+  const search = useMemo(
+    () => searchSatelliteCatalog(catalog, selectedIndex, query),
+    [catalog, query, selectedIndex],
+  );
+  const filtered = search.results;
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -344,7 +356,11 @@ function CommandPalette({
         <div className="palette-footer">
           <span><kbd>↑</kbd> <kbd>↓</kbd> navigate</span>
           <span><kbd>↵</kbd> select</span>
-          <span>{catalog.length} satellites</span>
+          <span>
+            {query.trim()
+              ? `${filtered.length} of ${search.totalMatches} matches`
+              : `Current satellite · ${catalog.length} total`}
+          </span>
         </div>
       </div>
     </div>
@@ -354,15 +370,25 @@ function CommandPalette({
 /* ── Main Explorer ── */
 
 export function SpaceExplorer({
-  satellites,
+  catalog: initialCatalog,
+  initialSatellite,
   dataMode,
 }: {
-  satellites: SatelliteRecord[];
+  catalog: SatelliteIndexEntry[];
+  initialSatellite: SatelliteRecord;
   dataMode: "live" | "demo";
 }) {
   const { theme, toggle: toggleTheme } = useTheme();
-  const [catalog, setCatalog] = useState(satellites);
-  const [selectedIndex, setSelectedIndex] = useState(0);
+  const [catalog, setCatalog] = useState(initialCatalog);
+  const [selectedIndex, setSelectedIndex] = useState(() => {
+    const index = initialCatalog.findIndex(
+      (entry) => entry.noradId === initialSatellite.noradId,
+    );
+    return index >= 0 ? index : 0;
+  });
+  const [satellite, setSatellite] = useState(initialSatellite);
+  const detailCache = useRef(new Map([[initialSatellite.noradId, initialSatellite]]));
+  const selectionRequest = useRef(0);
   const [panelOpen, setPanelOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [followSatellite, setFollowSatellite] = useState(true);
@@ -370,13 +396,10 @@ export function SpaceExplorer({
   const [enrichmentStates, setEnrichmentStates] = useState<
     Record<number, EnrichmentState>
   >({});
-  const [orbitalPoint, setOrbitalPoint] = useState<OrbitalPoint>(
-    INITIAL_ORBITAL_POINT,
-  );
+  const [orbitalPoint, setOrbitalPoint] = useState<OrbitalPoint | null>(null);
   const [orbitTrack, setOrbitTrack] = useState<OrbitTrack>(
     INITIAL_ORBIT_TRACK,
   );
-  const satellite = catalog[selectedIndex] ?? catalog[0];
   const inspectedPoint = useMemo(() => {
     if (inspectedOffsetMinutes === null) return null;
     return findGroundTrackSample(
@@ -397,10 +420,6 @@ export function SpaceExplorer({
     setInspectedOffsetMinutes(null);
     setFollowSatellite(true);
   }, []);
-
-  useEffect(() => {
-    setCatalog(satellites);
-  }, [satellites]);
 
   useEffect(() => {
     const update = () => setOrbitalPoint(getOrbitalPoint(satellite));
@@ -442,13 +461,59 @@ export function SpaceExplorer({
     String(catalog.length).length,
     "0",
   )} / ${catalog.length}`;
+  const orbitFreshness = useMemo(() => {
+    const value = satellite.orbitalElements?.EPOCH ?? satellite.updatedAt;
+    return getOrbitFreshness(value);
+  }, [satellite.orbitalElements?.EPOCH, satellite.updatedAt]);
+  const {
+    epoch: orbitEpoch,
+    ageLabel: orbitAge,
+    isStale: isOrbitStale,
+  } = orbitFreshness;
 
-  const selectSatellite = useCallback((index: number) => {
-    setSelectedIndex(index);
+  const selectSatellite = useCallback(async (index: number) => {
+    const entry = catalog[index];
+    if (!entry) return;
     setPanelOpen(true);
     setFollowSatellite(true);
     setInspectedOffsetMinutes(null);
-  }, []);
+    const requestId = selectionRequest.current + 1;
+    selectionRequest.current = requestId;
+
+    try {
+      let detail = detailCache.current.get(entry.noradId);
+      if (!detail) {
+        const response = await fetch(`/api/satellites/${entry.noradId}`, {
+          cache: "no-store",
+        });
+        const result = (await response.json()) as {
+          satellite?: SatelliteRecord;
+          error?: string;
+        };
+        if (!response.ok || !result.satellite) {
+          throw new Error(result.error ?? "Satellite details are unavailable.");
+        }
+        detail = result.satellite;
+        detailCache.current.set(entry.noradId, detail);
+      }
+
+      if (selectionRequest.current !== requestId) return;
+      setSatellite(detail);
+      setSelectedIndex(index);
+    } catch (error) {
+      if (selectionRequest.current !== requestId) return;
+      setEnrichmentStates((current) => ({
+        ...current,
+        [entry.noradId]: {
+          status: "error",
+          message:
+            error instanceof Error
+              ? error.message
+              : "Satellite details are temporarily unavailable.",
+        },
+      }));
+    }
+  }, [catalog]);
 
   const selectPrevious = () =>
     selectSatellite(
@@ -456,17 +521,17 @@ export function SpaceExplorer({
     );
   const selectNext = () =>
     selectSatellite((selectedIndex + 1) % catalog.length);
-  const hasEditorialDetails =
-    satellite.function || satellite.operatorDescription;
   const displaySources = useMemo(() => {
     const catalogHosts = new Set(
       satellite.sources
+        .filter((source) => isSafeExternalUrl(source.url))
         .filter((source) => !isAiResearchSource(source.label))
         .map((source) => sourceHostname(source.url)),
     );
     const shownResearchHosts = new Set<string>();
 
     return satellite.sources.flatMap((source) => {
+      if (!isSafeExternalUrl(source.url)) return [];
       if (!isAiResearchSource(source.label)) return [source];
 
       const hostname = sourceHostname(source.url);
@@ -487,15 +552,24 @@ export function SpaceExplorer({
   const isFullyEnriched = Boolean(
     satellite.missionEnrichedAt && satellite.operatorEnrichedAt,
   );
+  const missingEnrichmentPrompt = enrichmentPrompt({
+    hasMissionDescription: Boolean(satellite.missionDescription),
+    hasOperatorName: Boolean(satellite.operator),
+    hasOperatorDescription: Boolean(satellite.operatorDescription),
+  });
 
   const applyEnrichment = (enriched: EnrichedSatellite) => {
-    setCatalog((current) =>
-      current.map((item) =>
-        item.noradId === enriched.noradId
-          ? { ...item, ...enriched }
-          : item,
-      ),
-    );
+    setSatellite((current) => {
+      if (current.noradId !== enriched.noradId) return current;
+      const updated = { ...current, ...enriched };
+      detailCache.current.set(updated.noradId, updated);
+      return updated;
+    });
+    setCatalog((current) => current.map((item) =>
+      item.noradId === enriched.noradId
+        ? { ...item, operator: enriched.operator }
+        : item,
+    ));
   };
 
   const enhanceSatellite = async () => {
@@ -606,9 +680,27 @@ export function SpaceExplorer({
 
       {/* Header */}
       <header className="site-header">
-        <Link className="brand" href="/" aria-label="OpenSpace home">
+        <Link className="brand" href="/" aria-label={`${SITE_NAME} home`}>
           <span className="brand-mark" />
-          <span>OPENSPACE</span>
+          <TextRoll
+            className="brand-wordmark"
+            variants={{
+              enter: {
+                initial: { y: 0 },
+                animate: { y: 40 },
+              },
+              exit: {
+                initial: { y: -40 },
+                animate: { y: 0 },
+              },
+            }}
+            duration={0.3}
+            getEnterDelay={(index) => index * 0.05}
+            getExitDelay={(index) => index * 0.05 + 0.05}
+            transition={{ ease: [0.175, 0.885, 0.32, 1.1] }}
+          >
+            {SITE_NAME}
+          </TextRoll>
         </Link>
         <div className="header-actions">
           <button
@@ -662,13 +754,17 @@ export function SpaceExplorer({
           {satellite.operator && <span>{satellite.operator}</span>}
           {satellite.country && <span>{satellite.country}</span>}
         </p>
-        <div className="live-coords">
-          <Coordinate value={orbitalPoint.latitude} axis="lat" />
-          <span className="coord-sep" />
-          <Coordinate value={orbitalPoint.longitude} axis="lon" />
-          <span className="coord-sep" />
-          <span>{orbitalPoint.altitude.toFixed(0)} km</span>
-        </div>
+        {orbitalPoint ? (
+          <div className="live-coords">
+            <Coordinate value={orbitalPoint.latitude} axis="lat" />
+            <span className="coord-sep" />
+            <Coordinate value={orbitalPoint.longitude} axis="lon" />
+            <span className="coord-sep" />
+            <span>{orbitalPoint.altitude.toFixed(0)} km</span>
+          </div>
+        ) : (
+          <p className="live-coords">Current position unavailable</p>
+        )}
         {!panelOpen && (
           <button
             type="button"
@@ -690,8 +786,14 @@ export function SpaceExplorer({
           <p className="position-card-satellite-name">{satellite.name}</p>
           <p className="position-card-context">Currently overflying</p>
           <h2>
-            <Coordinate value={orbitalPoint.latitude} axis="lat" /> ·{" "}
-            <Coordinate value={orbitalPoint.longitude} axis="lon" />
+            {orbitalPoint ? (
+              <>
+                <Coordinate value={orbitalPoint.latitude} axis="lat" /> ·{" "}
+                <Coordinate value={orbitalPoint.longitude} axis="lon" />
+              </>
+            ) : (
+              "Position unavailable"
+            )}
           </h2>
           <p className="position-card-subtitle">
             Follow the marker to inspect the cities, terrain, and borders below.
@@ -699,15 +801,15 @@ export function SpaceExplorer({
           <dl className="position-stats">
             <div>
               <dt>Altitude</dt>
-              <dd>{orbitalPoint.altitude.toFixed(1)} km</dd>
+              <dd>{orbitalPoint ? `${orbitalPoint.altitude.toFixed(1)} km` : "—"}</dd>
             </div>
             <div>
               <dt>Velocity</dt>
-              <dd>{orbitalPoint.velocity.toFixed(2)} km/s</dd>
+              <dd>{orbitalPoint ? `${orbitalPoint.velocity.toFixed(2)} km/s` : "—"}</dd>
             </div>
             <div>
               <dt>Heading</dt>
-              <dd>{headingLabel(orbitalPoint.heading)}</dd>
+              <dd>{orbitalPoint ? headingLabel(orbitalPoint.heading) : "—"}</dd>
             </div>
             <div>
               <dt>NORAD ID</dt>
@@ -789,12 +891,30 @@ export function SpaceExplorer({
           <span style={{ left: "66.667%" }}>+20m</span>
           <span style={{ left: "100%" }}>+40m</span>
         </div>
-        <p className="ground-track-source">
-          Drag to inspect · 60 min calculated window · SGP4 from {satellite.orbitalElements ? "OMM" : "TLE"}
-          {satellite.orbitalElements?.EPOCH
-            ? ` · epoch ${new Date(satellite.orbitalElements.EPOCH).toLocaleDateString()}`
-            : ""}
-        </p>
+        <div
+          className={`orbit-freshness${isOrbitStale ? " is-stale" : ""}`}
+          role="note"
+          aria-label="Orbital data freshness"
+        >
+          <span className="orbit-freshness-icon" aria-hidden />
+          <div className="orbit-freshness-copy">
+            <strong>Predicted position</strong>
+            <span>
+              {orbitAge ? `Orbital data ${orbitAge}` : "Orbital epoch unavailable"}
+              {isOrbitStale ? " — accuracy may be reduced" : ""}
+            </span>
+          </div>
+          <div className="orbit-freshness-meta">
+            {orbitEpoch && (
+              <time dateTime={orbitEpoch.toISOString()}>
+                Epoch {formatUtcEpoch(orbitEpoch)}
+              </time>
+            )}
+            <span>
+              CelesTrak {satellite.orbitalElements ? "OMM" : "TLE"} · SGP4
+            </span>
+          </div>
+        </div>
       </section>
 
       {/* Slide-out detail panel */}
@@ -832,18 +952,18 @@ export function SpaceExplorer({
             <div>
               <span>Latitude</span>
               <strong>
-                <Coordinate value={orbitalPoint.latitude} axis="lat" />
+                {orbitalPoint ? <Coordinate value={orbitalPoint.latitude} axis="lat" /> : "—"}
               </strong>
             </div>
             <div>
               <span>Longitude</span>
               <strong>
-                <Coordinate value={orbitalPoint.longitude} axis="lon" />
+                {orbitalPoint ? <Coordinate value={orbitalPoint.longitude} axis="lon" /> : "—"}
               </strong>
             </div>
             <div>
               <span>Altitude</span>
-              <strong>{orbitalPoint.altitude.toFixed(1)} km</strong>
+              <strong>{orbitalPoint ? `${orbitalPoint.altitude.toFixed(1)} km` : "—"}</strong>
             </div>
           </div>
 
@@ -890,10 +1010,10 @@ export function SpaceExplorer({
             </dl>
           </div>
 
-          {satellite.function && (
+          {satellite.missionDescription && (
             <div className="panel-section">
-              <h3 className="section-label">Mission function</h3>
-              <p className="section-body">{satellite.function}</p>
+              <h3 className="section-label">Mission description</h3>
+              <p className="section-body">{satellite.missionDescription}</p>
             </div>
           )}
 
@@ -904,11 +1024,8 @@ export function SpaceExplorer({
             </div>
           )}
 
-          {!hasEditorialDetails && (
-            <p className="catalog-note">
-              Mission details are not available in the current public bulk
-              sources. Orbital data is verified against CelesTrak.
-            </p>
+          {!isFullyEnriched && (
+            <p className="catalog-note">{missingEnrichmentPrompt}</p>
           )}
 
           {dataMode === "live" && (

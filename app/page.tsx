@@ -1,9 +1,16 @@
 import { SpaceExplorer } from "@/components/SpaceExplorer";
-import { getSatellites } from "@/lib/supabase";
+import { getSatelliteExplorerData } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
-  const { satellites, dataMode } = await getSatellites();
-  return <SpaceExplorer satellites={satellites} dataMode={dataMode} />;
+  const { catalog, initialSatellite, dataMode } =
+    await getSatelliteExplorerData();
+  return (
+    <SpaceExplorer
+      catalog={catalog}
+      initialSatellite={initialSatellite}
+      dataMode={dataMode}
+    />
+  );
 }

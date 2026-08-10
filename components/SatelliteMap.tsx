@@ -16,7 +16,7 @@ import type {
 import { isUserCameraInteraction } from "@/lib/map-camera";
 
 type SatelliteMapProps = {
-  current: GroundTrackPoint;
+  current: GroundTrackPoint | null;
   past: GroundTrackSample[];
   predicted: GroundTrackSample[];
   inspected: GroundTrackSample | null;
@@ -108,7 +108,7 @@ export function SatelliteMap({
   const liveMarkerRef = useRef<Marker | null>(null);
   const liveMarkerElementRef = useRef<HTMLDivElement | null>(null);
   const trackDataRef = useRef({ past, predicted });
-  const displayPoint = inspected ?? current;
+  const displayPoint = inspected ?? current ?? { latitude: 0, longitude: 0 };
   const latitude = displayPoint.latitude;
   const longitude = displayPoint.longitude;
 
@@ -201,8 +201,9 @@ export function SatelliteMap({
         : satelliteName;
     }
     markerElementRef.current?.classList.toggle("is-inspecting", Boolean(inspected));
+    markerElementRef.current?.classList.toggle("is-position-unavailable", !current);
     liveMarkerElementRef.current?.classList.toggle("is-visible", Boolean(inspected));
-  }, [inspected, inspectionLabel, satelliteName]);
+  }, [current, inspected, inspectionLabel, satelliteName]);
 
   useEffect(() => {
     if (!map) return;
@@ -216,14 +217,17 @@ export function SatelliteMap({
   }, [map, onFollowChange]);
 
   useEffect(() => {
+    if (!current && !inspected) return;
     markerRef.current?.setLngLat([longitude, latitude]);
-    liveMarkerRef.current?.setLngLat([current.longitude, current.latitude]);
+    if (current) {
+      liveMarkerRef.current?.setLngLat([current.longitude, current.latitude]);
+    }
     if (map && inspected) {
       map.jumpTo({ center: [longitude, latitude] });
     } else if (map && follow) {
       map.jumpTo({ center: [longitude, latitude] });
     }
-  }, [current.latitude, current.longitude, follow, inspected, latitude, longitude, map]);
+  }, [current, follow, inspected, latitude, longitude, map]);
 
   return (
     <div className="satellite-map-stage" aria-label="Interactive satellite ground track map">
@@ -261,7 +265,9 @@ export function SatelliteMap({
         <button
           type="button"
           className={follow && !inspected ? "is-active" : undefined}
+          disabled={!current}
           onClick={() => {
+            if (!current) return;
             onReturnToLive();
             map?.easeTo({
               center: [current.longitude, current.latitude],

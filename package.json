@@ -1,5 +1,5 @@
 {
-  "name": "openspace",
+  "name": "cooper",
   "version": "0.1.0",
   "private": true,
   "engines": {
@@ -12,17 +12,18 @@
     "test": "node --experimental-strip-types --test lib/*.test.mjs && npm run lint && npm run build",
     "lint": "eslint .",
     "check:catalog": "node scripts/check-catalog-readiness.mjs",
-    "validate:satellites": "node scripts/validate-satellite-coverage.mjs",
+    "audit:catalog": "node scripts/audit-catalog-quality.mjs",
+    "validate:satellites": "node --experimental-strip-types scripts/validate-satellite-coverage.mjs",
     "trigger:dev": "npx trigger.dev@latest dev",
     "trigger:deploy": "npx trigger.dev@latest deploy"
   },
   "dependencies": {
-    "@google/genai": "^2.13.0",
     "@supabase/supabase-js": "^2.110.8",
-    "@trigger.dev/sdk": "4.5.9",
+    "@trigger.dev/sdk": "4.5.10",
     "cobe": "^2.0.1",
     "lucide-react": "^1.30.0",
     "maplibre-gl": "^5.24.0",
+    "motion": "^13.1.0",
     "next": "16.2.6",
     "openai": "^7.1.0",
     "react": "19.2.6",

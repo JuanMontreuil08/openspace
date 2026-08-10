@@ -64,7 +64,7 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
     mapRef.current = map;
     let ready = false;
     const handleError = (event: { error?: Error }) => {
-      console.error("[OpenSpace map]", event.error?.message ?? "Unknown map error");
+      console.error("[COOPER map]", event.error?.message ?? "Unknown map error");
     };
     const handleLoad = () => {
       if (ready) return;

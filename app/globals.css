@@ -1,29 +1,8 @@
 @import "tailwindcss";
 
-/* ─── Dark theme (default) ─── */
+/* ─── Light theme (default) ─── */
 :root {
-  --bg: #02050a;
-  --bg-elevated: rgba(4, 12, 19, 0.94);
-  --bg-surface: rgba(255, 255, 255, 0.04);
-  --bg-surface-hover: rgba(255, 255, 255, 0.07);
-  --ink: #e9f6fb;
-  --ink-secondary: #b0c5cd;
-  --muted: #7f929f;
-  --faint: #4f6774;
-  --dimmed: #3a5260;
-  --line: rgba(151, 209, 234, 0.10);
-  --glass: rgba(4, 10, 16, 0.80);
-  --accent: #69dcff;
-  --accent-soft: rgba(105, 220, 255, 0.07);
-  --accent-border: rgba(105, 220, 255, 0.16);
-  --green: #8fe3b2;
-  --radius: 12px;
-  --radius-sm: 8px;
-  --radius-xs: 5px;
-}
-
-/* ─── Light theme ─── */
-[data-theme="light"] {
+  color-scheme: light;
   --bg: #f5f7f9;
   --bg-elevated: rgba(255, 255, 255, 0.96);
   --bg-surface: rgba(0, 0, 0, 0.04);
@@ -35,10 +14,37 @@
   --dimmed: #b0bfc7;
   --line: rgba(15, 29, 38, 0.09);
   --glass: rgba(245, 247, 249, 0.90);
+  --nav-glass: rgba(248, 250, 252, 0.72);
+  --nav-shadow: 0 8px 30px rgba(15, 29, 38, 0.06);
   --accent: #0a7ea4;
   --accent-soft: rgba(10, 126, 164, 0.06);
   --accent-border: rgba(10, 126, 164, 0.18);
   --green: #1a8a52;
+  --radius: 12px;
+  --radius-sm: 8px;
+  --radius-xs: 5px;
+}
+
+/* ─── Dark theme ─── */
+[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #02050a;
+  --bg-elevated: rgba(4, 12, 19, 0.94);
+  --bg-surface: rgba(255, 255, 255, 0.04);
+  --bg-surface-hover: rgba(255, 255, 255, 0.07);
+  --ink: #e9f6fb;
+  --ink-secondary: #b0c5cd;
+  --muted: #7f929f;
+  --faint: #4f6774;
+  --dimmed: #3a5260;
+  --line: rgba(151, 209, 234, 0.10);
+  --glass: rgba(4, 10, 16, 0.80);
+  --nav-glass: rgba(4, 10, 16, 0.68);
+  --nav-shadow: 0 8px 30px rgba(0, 0, 0, 0.22);
+  --accent: #69dcff;
+  --accent-soft: rgba(105, 220, 255, 0.07);
+  --accent-border: rgba(105, 220, 255, 0.16);
+  --green: #8fe3b2;
 }
 
 * {
@@ -155,6 +161,10 @@ a {
   height: 38px;
   place-items: center;
   filter: drop-shadow(0 0 9px color-mix(in srgb, var(--accent) 58%, transparent));
+}
+
+.tracked-satellite-marker.is-position-unavailable {
+  display: none;
 }
 
 .tracked-satellite-marker::before {
@@ -296,9 +306,11 @@ a {
   justify-content: space-between;
   height: 56px;
   padding: 0 28px;
-  background: color-mix(in srgb, var(--bg) 70%, transparent);
+  background: var(--nav-glass);
   border-bottom: 1px solid var(--line);
-  backdrop-filter: blur(16px);
+  box-shadow: var(--nav-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(22px) saturate(145%);
+  -webkit-backdrop-filter: blur(22px) saturate(145%);
 }
 
 .brand {
@@ -323,6 +335,12 @@ a {
   background: var(--accent);
   border-radius: 50%;
   box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 50%, transparent);
+}
+
+.brand-wordmark {
+  display: inline-flex;
+  overflow: clip;
+  line-height: 1.1;
 }
 
 .header-actions {
@@ -563,8 +581,7 @@ a {
 .position-card-satellite-name,
 .position-card-context,
 .map-position-card h2,
-.position-card-subtitle,
-.ground-track-source {
+.position-card-subtitle {
   margin: 0;
 }
 
@@ -901,10 +918,67 @@ a {
   color: var(--ink-secondary);
 }
 
-.ground-track-source {
-  margin-top: 8px;
-  color: var(--faint);
+.orbit-freshness {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 9px;
+  align-items: center;
+  padding: 8px 9px;
+  margin-top: 9px;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--green) 5%, transparent);
+  border: 1px solid color-mix(in srgb, var(--green) 18%, var(--line));
+  border-radius: calc(var(--radius) - 3px);
+}
+
+.orbit-freshness.is-stale {
+  background: color-mix(in srgb, #e7a84b 8%, transparent);
+  border-color: color-mix(in srgb, #e7a84b 32%, var(--line));
+}
+
+.orbit-freshness-icon {
+  width: 7px;
+  height: 7px;
+  background: var(--green);
+  border-radius: 50%;
+  box-shadow: 0 0 8px color-mix(in srgb, var(--green) 65%, transparent);
+}
+
+.orbit-freshness.is-stale .orbit-freshness-icon {
+  background: #e7a84b;
+  box-shadow: 0 0 8px color-mix(in srgb, #e7a84b 65%, transparent);
+}
+
+.orbit-freshness-copy,
+.orbit-freshness-meta {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.orbit-freshness-copy strong {
+  color: var(--ink-secondary);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.orbit-freshness-copy span,
+.orbit-freshness-meta {
   font-size: 8px;
+  line-height: 1.35;
+}
+
+.orbit-freshness.is-stale .orbit-freshness-copy span {
+  color: #e7a84b;
+}
+
+.orbit-freshness-meta {
+  align-items: flex-end;
+  color: var(--faint);
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
   text-align: right;
 }
 
@@ -1584,12 +1658,14 @@ a {
     display: none;
   }
 
-  .ground-track-source {
-    max-width: 220px;
-    margin-left: auto;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+  .orbit-freshness {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .orbit-freshness-meta {
+    grid-column: 2;
+    align-items: flex-start;
+    text-align: left;
   }
 
   .detail-panel {

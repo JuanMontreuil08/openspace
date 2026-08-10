@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
+import { SITE_NAME, THEME_STORAGE_KEY } from "@/lib/brand";
 import "./globals.css";
 
 const inter = Inter({
@@ -15,11 +16,11 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "OpenSpace — Explore satellites in orbit",
+  title: `${SITE_NAME} — Explore satellites in orbit`,
   description:
     "A visual field guide to the satellites orbiting Earth, beginning with Starcloud-1.",
   openGraph: {
-    title: "OpenSpace — Explore satellites in orbit",
+    title: `${SITE_NAME} — Explore satellites in orbit`,
     description:
       "A visual field guide to the satellites orbiting Earth, beginning with Starcloud-1.",
     type: "website",
@@ -40,7 +41,18 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${inter.variable} ${jetbrainsMono.variable}`}>
+    <html
+      lang="en"
+      className={`${inter.variable} ${jetbrainsMono.variable}`}
+      suppressHydrationWarning
+    >
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `try{var t=localStorage.getItem(${JSON.stringify(THEME_STORAGE_KEY)});document.documentElement.setAttribute("data-theme",t==="dark"?"dark":"light")}catch(e){document.documentElement.setAttribute("data-theme","light")}`,
+          }}
+        />
+      </head>
       <body>{children}</body>
     </html>
   );
