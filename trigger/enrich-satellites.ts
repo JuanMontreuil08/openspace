@@ -8,7 +8,6 @@ import { sanitizeEnrichmentDescription } from "../lib/sanitize-enrichment";
 const OPENAI_MODEL = "gpt-5.6-luna";
 const MISSION_SOURCE_LABEL = "OpenAI mission research";
 const OPERATOR_SOURCE_LABEL = "OpenAI operator research";
-const LEGACY_MISSION_SOURCE_LABEL = "Groq mission research";
 const LEGACY_OPERATOR_SOURCE_LABEL = "Groq operator research";
 
 const enrichmentPayloadSchema = z.object({
@@ -30,7 +29,8 @@ const enrichmentRowSchema = z.object({
   manufacturer: z.string().nullable(),
   country: z.string().nullable(),
   launch_date: z.string().nullable(),
-  function: z.string().nullable(),
+  mission_category: z.string().nullable(),
+  mission_description: z.string().nullable(),
   operator_description: z.string().nullable(),
   source_urls: z.array(sourceLinkSchema),
   mission_enriched_at: z.string().nullable(),
@@ -44,6 +44,7 @@ const researchResultSchema = z.object({
   identityConfirmed: z.boolean(),
   missionDescription: z.string().min(80).max(500).nullable(),
   missionSourceUrls: z.array(z.string()).max(10),
+  operatorName: z.string().trim().min(2).max(160).nullable(),
   operatorDescription: z.string().min(80).max(500).nullable(),
   operatorSourceUrls: z.array(z.string()).max(10),
   missionEvidenceSufficient: z.boolean(),
@@ -90,13 +91,6 @@ function operatorKey(operator: string) {
   return operator.trim();
 }
 
-function isMissionResearchSource(label: string) {
-  return (
-    label === MISSION_SOURCE_LABEL ||
-    label === LEGACY_MISSION_SOURCE_LABEL
-  );
-}
-
 function isOperatorResearchSource(label: string) {
   return (
     label === OPERATOR_SOURCE_LABEL ||
@@ -105,18 +99,11 @@ function isOperatorResearchSource(label: string) {
 }
 
 function uniqueSources(sources: SourceLink[]) {
-  const byUrl = new Map<string, SourceLink>();
+  const unique = new Map<string, SourceLink>();
   for (const source of sources) {
-    const existing = byUrl.get(source.url);
-    const isOperatorResearch = isOperatorResearchSource(source.label);
-    const isMissionResearch =
-      isMissionResearchSource(source.label) &&
-      !isOperatorResearchSource(existing?.label ?? "");
-    if (!existing || isOperatorResearch || isMissionResearch) {
-      byUrl.set(source.url, source);
-    }
+    unique.set(`${source.label}\u0000${source.url}`, source);
   }
-  return [...byUrl.values()];
+  return [...unique.values()];
 }
 
 function labeledSources(urls: string[], label: string) {
@@ -145,7 +132,7 @@ ${JSON.stringify(
     manufacturer: satellite.manufacturer,
     country: satellite.country,
     launchDate: satellite.launch_date,
-    currentMissionCategory: satellite.function,
+    currentMissionCategory: satellite.mission_category,
     knownSourceUrls: sourceUrlsForPrompt(satellite.source_urls),
   },
   null,
@@ -160,7 +147,8 @@ Requirements:
 - Each supported description must be neutral English, 2 or 3 sentences, and 80–500 characters.
 - Write plain prose only. Do not include citations, Markdown links, source names in parentheses, or raw URLs in either description; URLs belong only in the source arrays.
 - Research the mission: ${needsMission ? "yes" : "no; return null, an empty source array, and false"}.
-- Research the operator: ${needsOperator ? "yes" : "no; return null, an empty source array, and false"}.
+- Research the operator: ${needsOperator ? "yes; when the catalog operator is missing, also return the exact supported operator name" : "no; return null for operatorName and operatorDescription, an empty source array, and false"}.
+- When the catalog operator is missing, identify the current spacecraft operator—not merely its manufacturer, launch provider, historical owner, or funding organization. Mark operator evidence sufficient only when the same opened sources support both the exact operator name and its description.
 - Put the exact URLs used for mission facts in missionSourceUrls and operator facts in operatorSourceUrls.
 - If evidence is insufficient or identity is ambiguous, return null for the unsupported description, an empty source array, and false.`;
 }
@@ -260,7 +248,7 @@ async function loadOperationalRows(
   const { data, error } = await supabase
     .from("satellites")
     .select(
-      "norad_id, cospar_id, name, alternate_name, operator, manufacturer, country, launch_date, function, operator_description, source_urls, mission_enriched_at, operator_enriched_at",
+      "norad_id, cospar_id, name, alternate_name, operator, manufacturer, country, launch_date, mission_category, mission_description, operator_description, source_urls, mission_enriched_at, operator_enriched_at",
     )
     .eq("status", "operational")
     .eq("norad_id", noradId)
@@ -393,8 +381,7 @@ export const enrichSatelliteCatalog = task({
       const needsMission =
         payload.overwrite || !satellite.mission_enriched_at;
       const needsOperator =
-        Boolean(satellite.operator) &&
-        (payload.overwrite || !satellite.operator_enriched_at);
+        payload.overwrite || !satellite.operator_enriched_at;
       const key = satellite.operator
         ? operatorKey(satellite.operator)
         : null;
@@ -403,23 +390,22 @@ export const enrichSatelliteCatalog = task({
 
       try {
         const update: {
-          function?: string;
+          operator?: string;
+          operator_source?: "ai";
+          mission_description?: string;
           operator_description?: string;
-          source_urls?: SourceLink[];
           mission_enriched_at?: string;
           operator_enriched_at?: string;
         } = {};
-        let mergedSources = satellite.source_urls;
+        let missionSources: SourceLink[] = [];
+        let operatorSources: SourceLink[] = [];
         let missionWasEnriched = !needsMission;
         let operatorWasEnriched = !needsOperator;
 
         if (needsOperator && cachedOperator) {
           update.operator_description = cachedOperator.description;
           update.operator_enriched_at = new Date().toISOString();
-          mergedSources = uniqueSources([
-            ...mergedSources,
-            ...cachedOperator.sources,
-          ]);
+          operatorSources = cachedOperator.sources;
           operatorWasEnriched = true;
           summary.operatorEnriched += 1;
           summary.operatorCacheHits += 1;
@@ -450,9 +436,9 @@ export const enrichSatelliteCatalog = task({
             MISSION_SOURCE_LABEL,
           );
           if (description.length >= 80 && description.length <= 500) {
-            update.function = description;
+            update.mission_description = description;
             update.mission_enriched_at = new Date().toISOString();
-            mergedSources = uniqueSources([...mergedSources, ...sources]);
+            missionSources = sources;
             missionWasEnriched = true;
             summary.missionEnriched += 1;
           } else {
@@ -468,7 +454,7 @@ export const enrichSatelliteCatalog = task({
           research.operatorEvidenceSufficient &&
           research.operatorDescription &&
           research.operatorSourceUrls.length > 0 &&
-          key
+          (satellite.operator || research.operatorName)
         ) {
           const description = sanitizeEnrichmentDescription(
             research.operatorDescription,
@@ -482,10 +468,14 @@ export const enrichSatelliteCatalog = task({
             sources,
           };
           if (description.length >= 80 && description.length <= 500) {
-            operatorCache.set(key, enrichment);
+            if (key) operatorCache.set(key, enrichment);
+            if (!satellite.operator && research.operatorName) {
+              update.operator = research.operatorName;
+              update.operator_source = "ai";
+            }
             update.operator_description = enrichment.description;
             update.operator_enriched_at = new Date().toISOString();
-            mergedSources = uniqueSources([...mergedSources, ...sources]);
+            operatorSources = sources;
             operatorWasEnriched = true;
             summary.operatorEnriched += 1;
           } else {
@@ -495,16 +485,25 @@ export const enrichSatelliteCatalog = task({
           summary.insufficientEvidence += 1;
         }
 
-        if (mergedSources !== satellite.source_urls) {
-          update.source_urls = mergedSources;
-        }
-
         if (Object.keys(update).length > 0) {
-          const { error } = await supabase
-            .from("satellites")
-            .update(update)
-            .eq("norad_id", satellite.norad_id);
+          const { data: applied, error } = await supabase.rpc(
+            "apply_satellite_enrichment",
+            {
+              p_norad_id: satellite.norad_id,
+              p_expected_operator: satellite.operator,
+              p_operator_name: update.operator ?? null,
+              p_mission_description: update.mission_description ?? null,
+              p_mission_enriched_at: update.mission_enriched_at ?? null,
+              p_operator_description: update.operator_description ?? null,
+              p_operator_enriched_at: update.operator_enriched_at ?? null,
+              p_mission_sources: uniqueSources(missionSources),
+              p_operator_sources: uniqueSources(operatorSources),
+            },
+          );
           if (error) throw error;
+          if (!applied) {
+            throw new Error("Satellite enrichment could not be applied.");
+          }
         }
 
         summary.processed += 1;

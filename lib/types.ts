@@ -22,17 +22,18 @@ export type OrbitalElements = {
 
 export type SatelliteRecord = {
   noradId: number;
-  satnogsId: string;
-  cosparId: string;
+  satnogsId: string | null;
+  cosparId: string | null;
   name: string;
-  alternateName: string;
+  alternateName: string | null;
   operator: string | null;
   operatorDescription: string | null;
   manufacturer: string | null;
   country: string | null;
   launchDate: string | null;
   status: "operational" | "inactive" | "unknown";
-  function: string | null;
+  missionCategory: string | null;
+  missionDescription: string | null;
   dataCenterRelation: string | null;
   inclinationDeg: number;
   periodMinutes: number;
@@ -44,3 +45,8 @@ export type SatelliteRecord = {
   operatorEnrichedAt: string | null;
   updatedAt: string;
 };
+
+export type SatelliteIndexEntry = Pick<
+  SatelliteRecord,
+  "noradId" | "name" | "alternateName" | "operator" | "country"
+>;

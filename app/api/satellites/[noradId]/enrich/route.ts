@@ -48,7 +48,7 @@ async function loadSatellite(noradId: number) {
   const { data, error } = await getSupabaseAdmin()
     .from("satellites")
     .select(
-      "norad_id, status, function, operator_description, source_urls, mission_enriched_at, operator_enriched_at",
+      "norad_id, status, operator, mission_description, operator_description, source_urls, mission_enriched_at, operator_enriched_at",
     )
     .eq("norad_id", noradId)
     .eq("status", "operational")
@@ -63,7 +63,8 @@ function satelliteResponse(
 ) {
   return {
     noradId: satellite.norad_id,
-    function: satellite.function,
+    operator: satellite.operator,
+    missionDescription: satellite.mission_description,
     operatorDescription: satellite.operator_description,
     sources: satellite.source_urls ?? [],
     missionEnrichedAt: satellite.mission_enriched_at,

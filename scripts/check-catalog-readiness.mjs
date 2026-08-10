@@ -35,7 +35,12 @@ if (schemaProbe.error) {
   );
   process.exitCode = 1;
 } else {
-  const [operationalResult, orbitalResult, latestResult] = await Promise.all([
+  const [
+    operationalResult,
+    orbitalResult,
+    latestResult,
+    stagingResult,
+  ] = await Promise.all([
     supabase
       .from("satellites")
       .select("norad_id", { count: "exact", head: true })
@@ -52,19 +57,27 @@ if (schemaProbe.error) {
       .order("synced_at", { ascending: false })
       .limit(1)
       .maybeSingle(),
+    supabase
+      .from("satellite_catalog_staging")
+      .select("norad_id", { count: "exact", head: true }),
   ]);
 
   const error =
-    operationalResult.error ?? orbitalResult.error ?? latestResult.error;
+    operationalResult.error ??
+    orbitalResult.error ??
+    latestResult.error ??
+    stagingResult.error;
   if (error) {
     throw error;
   }
 
   const operational = operationalResult.count ?? 0;
   const withOrbitalElements = orbitalResult.count ?? 0;
+  const stagedRows = stagingResult.count ?? 0;
   const ready =
     operational > 1 &&
     operational === withOrbitalElements &&
+    stagedRows === 0 &&
     Boolean(latestResult.data?.synced_at);
 
   console.table([
@@ -74,6 +87,8 @@ if (schemaProbe.error) {
       metric: "Latest catalog sync",
       value: latestResult.data?.synced_at ?? "none",
     },
+    { metric: "Unpublished staging rows", value: stagedRows },
+    { metric: "NORAD uniqueness", value: "database primary key" },
     { metric: "Catalog ready", value: ready ? "yes" : "no" },
   ]);
 
