@@ -391,7 +391,6 @@ export function SpaceExplorer({
   const selectionRequest = useRef(0);
   const [panelOpen, setPanelOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const [followSatellite, setFollowSatellite] = useState(true);
   const [inspectedOffsetMinutes, setInspectedOffsetMinutes] = useState<number | null>(null);
   const [enrichmentStates, setEnrichmentStates] = useState<
     Record<number, EnrichmentState>
@@ -418,7 +417,6 @@ export function SpaceExplorer({
 
   const returnToLive = useCallback(() => {
     setInspectedOffsetMinutes(null);
-    setFollowSatellite(true);
   }, []);
 
   useEffect(() => {
@@ -475,7 +473,6 @@ export function SpaceExplorer({
     const entry = catalog[index];
     if (!entry) return;
     setPanelOpen(true);
-    setFollowSatellite(true);
     setInspectedOffsetMinutes(null);
     const requestId = selectionRequest.current + 1;
     selectionRequest.current = requestId;
@@ -673,8 +670,6 @@ export function SpaceExplorer({
         inspectionLabel={inspectionLabel}
         satelliteName={satellite.name}
         theme={theme}
-        follow={followSatellite}
-        onFollowChange={setFollowSatellite}
         onReturnToLive={returnToLive}
       />
 
@@ -796,7 +791,7 @@ export function SpaceExplorer({
             )}
           </h2>
           <p className="position-card-subtitle">
-            Follow the marker to inspect the cities, terrain, and borders below.
+            Inspect the ground track to see the cities, terrain, and borders below.
           </p>
           <dl className="position-stats">
             <div>
@@ -816,18 +811,6 @@ export function SpaceExplorer({
               <dd>{satellite.noradId}</dd>
             </div>
           </dl>
-          <button
-            type="button"
-            className="follow-satellite-button"
-            aria-pressed={followSatellite}
-            onClick={() => {
-              if (inspectedPoint || !followSatellite) returnToLive();
-              else setFollowSatellite(false);
-            }}
-          >
-            <span>Follow satellite</span>
-            <span>{followSatellite ? "ON" : "OFF"}</span>
-          </button>
           <button
             type="button"
             className="open-profile-button"
@@ -879,7 +862,6 @@ export function SpaceExplorer({
             aria-valuetext={formatGroundTrackOffset(inspectedOffsetMinutes ?? 0)}
             onChange={(event) => {
               setInspectedOffsetMinutes(Number(event.target.value));
-              setFollowSatellite(false);
             }}
           />
         </div>

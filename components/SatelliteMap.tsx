@@ -13,7 +13,6 @@ import type {
   GroundTrackPoint,
   GroundTrackSample,
 } from "@/lib/ground-track";
-import { isUserCameraInteraction } from "@/lib/map-camera";
 
 type SatelliteMapProps = {
   current: GroundTrackPoint | null;
@@ -23,8 +22,6 @@ type SatelliteMapProps = {
   inspectionLabel: string | null;
   satelliteName: string;
   theme: "light" | "dark";
-  follow: boolean;
-  onFollowChange: (follow: boolean) => void;
   onReturnToLive: () => void;
 };
 
@@ -97,8 +94,6 @@ export function SatelliteMap({
   inspectionLabel,
   satelliteName,
   theme,
-  follow,
-  onFollowChange,
   onReturnToLive,
 }: SatelliteMapProps) {
   const [map, setMap] = useState<MapLibreMap | null>(null);
@@ -206,17 +201,6 @@ export function SatelliteMap({
   }, [current, inspected, inspectionLabel, satelliteName]);
 
   useEffect(() => {
-    if (!map) return;
-    const stopFollowing = (event: { originalEvent?: unknown }) => {
-      if (isUserCameraInteraction(event)) onFollowChange(false);
-    };
-    map.on("movestart", stopFollowing);
-    return () => {
-      map.off("movestart", stopFollowing);
-    };
-  }, [map, onFollowChange]);
-
-  useEffect(() => {
     if (!current && !inspected) return;
     markerRef.current?.setLngLat([longitude, latitude]);
     if (current) {
@@ -224,10 +208,8 @@ export function SatelliteMap({
     }
     if (map && inspected) {
       map.jumpTo({ center: [longitude, latitude] });
-    } else if (map && follow) {
-      map.jumpTo({ center: [longitude, latitude] });
     }
-  }, [current, follow, inspected, latitude, longitude, map]);
+  }, [current, inspected, latitude, longitude, map]);
 
   return (
     <div className="satellite-map-stage" aria-label="Interactive satellite ground track map">
@@ -244,27 +226,20 @@ export function SatelliteMap({
       <div className="map-controls" aria-label="Map controls">
         <button
           type="button"
-          onClick={() => {
-            onFollowChange(false);
-            map?.zoomIn();
-          }}
+          onClick={() => map?.zoomIn()}
           aria-label="Zoom in"
         >
           <Plus size={16} />
         </button>
         <button
           type="button"
-          onClick={() => {
-            onFollowChange(false);
-            map?.zoomOut();
-          }}
+          onClick={() => map?.zoomOut()}
           aria-label="Zoom out"
         >
           <Minus size={16} />
         </button>
         <button
           type="button"
-          className={follow && !inspected ? "is-active" : undefined}
           disabled={!current}
           onClick={() => {
             if (!current) return;
@@ -274,7 +249,7 @@ export function SatelliteMap({
               duration: 600,
             });
           }}
-          aria-label={inspected ? "Return to live satellite position" : "Return to satellite"}
+          aria-label={inspected ? "Return to live satellite position" : "Center on satellite"}
         >
           <Scan size={15} />
         </button>

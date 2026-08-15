@@ -654,31 +654,10 @@ a {
   font-size: 11px;
 }
 
-.follow-satellite-button,
 .open-profile-button {
   width: 100%;
   cursor: pointer;
   border-radius: var(--radius-sm);
-}
-
-.follow-satellite-button {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 9px 10px;
-  color: var(--ink-secondary);
-  font-size: 11px;
-  background: var(--bg-surface);
-  border: 1px solid var(--line);
-}
-
-.follow-satellite-button span:last-child {
-  color: var(--accent);
-  font-family: var(--font-mono), "JetBrains Mono", monospace;
-}
-
-.follow-satellite-button[aria-pressed="false"] span:last-child {
-  color: var(--muted);
 }
 
 .open-profile-button {
